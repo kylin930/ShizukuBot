@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, shrink-to-fit=no">
+    <meta name="renderer" content="webkit">
+    <title>ShizukuBot - 管理后台</title>
+    <link rel="stylesheet" href="https://unpkg.com/mdui@2/mdui.css">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons|Material+Icons+Outlined" rel="stylesheet">
+    <link rel="stylesheet" href="/litegraph/css/litegraph.css">
+    <link href="/static/css/app.css" rel="stylesheet">
+</head>
+<body>
+    <mdui-layout full-height>
+
+        <!-- 顶部应用栏 -->
+        <mdui-top-app-bar>
+            <mdui-button-icon icon="menu" id="menu-toggle" class="mobile-only"></mdui-button-icon>
+            <mdui-top-app-bar-title>ShizukuBot</mdui-top-app-bar-title>
+            <div style="flex-grow: 1"></div>
+            <mdui-button-icon icon="logout" id="logout-btn"></mdui-button-icon>
+        </mdui-top-app-bar>
+
+        <!-- 桌面端侧边导航栏 -->
+        <mdui-navigation-rail divider class="desktop-nav" value="stats">
+            <mdui-navigation-rail-item icon="bar_chart--outlined" value="stats" data-route="/stats">统计</mdui-navigation-rail-item>
+            <mdui-navigation-rail-item icon="smart_toy--outlined" value="bots" data-route="/bots">机器人</mdui-navigation-rail-item>
+            <mdui-navigation-rail-item icon="event_note--outlined" value="logs" data-route="/logs">日志</mdui-navigation-rail-item>
+            <mdui-navigation-rail-item icon="code--outlined" value="api-test" data-route="/api-test">调试</mdui-navigation-rail-item>
+            <mdui-navigation-rail-item icon="extension--outlined" value="plugins" data-route="/plugins">插件</mdui-navigation-rail-item>
+            <mdui-navigation-rail-item icon="store--outlined" value="community" data-route="/community">社区</mdui-navigation-rail-item>
+            <mdui-navigation-rail-item icon="science--outlined" value="sandbox" data-route="/sandbox">沙盒</mdui-navigation-rail-item>
+            <mdui-navigation-rail-item icon="settings--outlined" value="config" data-route="/config">配置</mdui-navigation-rail-item>
+            <mdui-navigation-rail-item icon="people--outlined" value="users" data-route="/users">用户</mdui-navigation-rail-item>
+            <mdui-navigation-rail-item icon="info--outlined" value="about" data-route="/about">关于</mdui-navigation-rail-item>
+        </mdui-navigation-rail>
+
+        <!-- 移动端抽屉栏 -->
+        <mdui-navigation-drawer modal close-on-esc close-on-overlay-click class="mobile-nav">
+            <div class="drawer-header">
+                <mdui-icon name="smart_toy" style="font-size: 40px; color: var(--mdui-color-primary)"></mdui-icon>
+                <div class="drawer-title">ShizukuBot</div>
+                <div class="drawer-subtitle">QQ机器人管理后台</div>
+            </div>
+            <mdui-divider></mdui-divider>
+            <mdui-list>
+                <mdui-list-item
+                    active
+                    icon="bar_chart--outlined"
+                    headline="统计"
+                    data-route="/stats"
+                    class="nav-item">
+                </mdui-list-item>
+                <mdui-list-item
+                    icon="smart_toy--outlined"
+                    headline="机器人管理"
+                    data-route="/bots"
+                    class="nav-item">
+                </mdui-list-item>
+                <mdui-list-item
+                    icon="event_note--outlined"
+                    headline="日志"
+                    data-route="/logs"
+                    class="nav-item">
+                </mdui-list-item>
+                <mdui-list-item
+                    icon="code--outlined"
+                    headline="接口调试"
+                    data-route="/api-test"
+                    class="nav-item">
+                </mdui-list-item>
+                <mdui-list-item
+                    icon="extension--outlined"
+                    headline="插件"
+                    data-route="/plugins"
+                    class="nav-item">
+                </mdui-list-item>
+                <mdui-list-item
+                    icon="store--outlined"
+                    headline="插件社区"
+                    data-route="/community"
+                    class="nav-item">
+                </mdui-list-item>
+                <mdui-list-item
+                    icon="science--outlined"
+                    headline="沙盒"
+                    data-route="/sandbox"
+                    class="nav-item">
+                </mdui-list-item>
+                <mdui-list-item
+                    icon="settings--outlined"
+                    headline="配置"
+                    data-route="/config"
+                    class="nav-item">
+                </mdui-list-item>
+                <mdui-list-item
+                    icon="people--outlined"
+                    headline="用户管理"
+                    data-route="/users"
+                    class="nav-item">
+                </mdui-list-item>
+                <mdui-list-item
+                    icon="info--outlined"
+                    headline="关于"
+                    data-route="/about"
+                    class="nav-item">
+                </mdui-list-item>
+            </mdui-list>
+        </mdui-navigation-drawer>
+
+        <!-- 主内容区域 -->
+        <mdui-layout-main id="app-content" class="page-content">
+            <!-- 动态内容将渲染到这里 -->
+        </mdui-layout-main>
+
+    </mdui-layout>
+
+    <script src="https://unpkg.com/mdui@2/mdui.global.js"></script>
+    <script src="https://unpkg.com/chart.js"></script>
+    <script src="https://gosspublic.alicdn.com/aliyun-oss-sdk-6.21.0.min.js"></script>
+    <script src="/litegraph/build/litegraph.js"></script>
+    <script src="/static/js/plugin-nodes.js"></script>
+    <script src="/static/js/community.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

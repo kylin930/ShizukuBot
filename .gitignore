@@ -1,0 +1,78 @@
+# ===== 编译产物 =====
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+shizukubot
+shizukubot.exe
+server/plugin-market.exe
+
+# ===== Go =====
+/vendor/
+
+# ===== 日志 =====
+logs/
+*.log
+
+# ===== 运行时数据 =====
+data/users.json
+data/ccb_records.json
+data/ccb_plus_go/
+data/custom_nodes/
+data/plugins/
+data/koishi-plugin-ccb-plus-main/
+
+# ===== 配置（含敏感信息）=====
+config/config.json
+server/config.json
+server/auth_cache.json
+auth_cache.json
+
+# ===== 大文件 / 临时文件 =====
+llms-full.txt
+trash/
+upload.py
+
+# ===== 第三方参考代码（非本项目源码，零引用）=====
+Gensokyo-main/
+ShizukuBot/
+
+# 注意：botgo-master/ 和 litegraph.js-release/ 必须保留
+# - botgo-master/ 是 go.mod replace 指向的本地依赖，编译必需
+# - litegraph.js-release/ 是 webui 运行时静态资源，运行必需
+
+# ===== IDE / 工具 =====
+.arts/
+.trae/
+.codeartsdoer/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ===== Node.js（预防性，webui 为纯静态资源）=====
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+dist/
+.cache/
+
+# ===== OS =====
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/

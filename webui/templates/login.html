@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, shrink-to-fit=no">
+    <meta name="renderer" content="webkit">
+    <title>ShizukuBot - 登录</title>
+    <link rel="stylesheet" href="https://unpkg.com/mdui@2/mdui.css">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons|Material+Icons+Outlined" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-image: url('https://teachermate.oss-cn-qingdao.aliyuncs.com/vokMW-1750340487715-nekoaft_N02_a.png');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            background-repeat: no-repeat;
+        }
+        .login-card {
+            width: 360px;
+            padding: 32px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            opacity: 0.85;
+        }
+        .login-logo {
+            width: 72px;
+            height: 72px;
+            border-radius: 16px;
+            background-color: var(--mdui-color-primary-container);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 24px;
+        }
+        .login-title {
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--mdui-color-on-surface);
+            margin-bottom: 4px;
+        }
+        .login-subtitle {
+            font-size: 14px;
+            color: var(--mdui-color-on-surface-variant);
+            margin-bottom: 32px;
+        }
+        .login-form {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .login-form mdui-text-field {
+            width: 100%;
+        }
+        .login-error {
+            color: var(--mdui-color-error);
+            font-size: 14px;
+            min-height: 20px;
+            text-align: center;
+        }
+        .login-footer {
+            margin-top: 24px;
+            font-size: 12px;
+            color: var(--mdui-color-on-surface-variant);
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <mdui-card variant="outlined" class="login-card">
+        <div class="login-logo">
+            <mdui-icon name="smart_toy" style="font-size:40px;color:var(--mdui-color-primary)"></mdui-icon>
+        </div>
+        <div class="login-title">ShizukuBot</div>
+        <div class="login-subtitle">QQ机器人管理后台</div>
+        <form class="login-form" id="login-form">
+            <mdui-text-field
+                label="用户名"
+                value="admin"
+                id="username"
+                icon="person">
+            </mdui-text-field>
+            <mdui-text-field
+                label="密码"
+                type="password"
+                id="password"
+                icon="lock"
+                toggle-password>
+            </mdui-text-field>
+            <div class="login-error" id="error-msg"></div>
+            <mdui-button type="submit" variant="filled" full-width icon="login">登录</mdui-button>
+        </form>
+        <div class="login-footer">ShizukuBot v1.0.0</div>
+    </mdui-card>
+
+    <script src="https://unpkg.com/mdui@2/mdui.global.js"></script>
+    <script>
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const errorMsg = document.getElementById('error-msg');
+            errorMsg.textContent = '';
+
+            try {
+                const resp = await fetch('/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: username, password: password }),
+                });
+                const data = await resp.json();
+                if (data.code === 0) {
+                    window.location.href = '/';
+                } else {
+                    errorMsg.textContent = data.message || '登录失败';
+                }
+            } catch (err) {
+                errorMsg.textContent = '网络错误: ' + err.message;
+            }
+        });
+    </script>
+</body>
+</html>
