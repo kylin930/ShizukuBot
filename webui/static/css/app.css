@@ -785,3 +785,13 @@ mdui-list {
 }
 .plugin-page-surface { padding:16px; box-sizing:border-box; min-width:0; }
 .plugin-detail { scroll-margin-block-start:80px; }
+
+/* Data-only rules reuse the existing administration layout and MDUI theme. */
+.rules-form, .rules-test { display:flex; flex-direction:column; gap:12px; min-width:0; }
+.rules-form mdui-text-field, .rules-form mdui-select, .rules-test mdui-text-field, .rules-test mdui-select { width:100%; min-width:0; }
+.rules-form p { margin:0 0 4px; }
+.rules-switch-label { display:flex; align-items:center; gap:12px; }
+.rules-trace { padding:12px; margin-block:12px; border:1px solid rgb(var(--mdui-color-outline-variant)); border-radius:12px; overflow-wrap:anywhere; }
+.rules-trace h4 { margin:0 0 8px; }
+.rules-trace pre { white-space:pre-wrap; overflow-wrap:anywhere; }
+.rules-page mdui-list-item { overflow-wrap:anywhere; }

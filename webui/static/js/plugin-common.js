@@ -1,4 +1,4 @@
-// Shared utilities for plugin administration and capture-only sandbox pages.
+// Shared administration utilities, plugin-specific editors and sandbox helpers.
 // Plain browser JavaScript; no bundler or runtime dependency.
 (() => {
     'use strict';
@@ -28,7 +28,7 @@
         const node = el('mdui-button', {text: label, variant, id});
         node.addEventListener('click', () => Promise.resolve().then(action).catch(error => {
             if (error.name !== 'AbortError' && node.isConnected) {
-                const host = node.closest('.plugin-page-surface')?.querySelector('#plugin-feedback, #sandbox-feedback');
+                const host = node.closest('.plugin-page-surface')?.querySelector('#plugin-feedback, #sandbox-feedback, #rules-feedback');
                 if (host) notice(host, errorMessage(error), 'error');
                 else window.showSnackbar?.('操作失败，请检查输入。');
             }
@@ -60,7 +60,7 @@
         let body; try { body = JSON.parse(source); } catch { body = null; }
         if (!response.ok || (body && typeof body.code === 'number' && body.code !== 0)) {
             const error = Error(body?.message || source.slice(0, 1000) || `HTTP ${response.status}`);
-            error.status = response.status; throw error;
+            error.status = response.status; error.code = body?.code; throw error;
         }
         if (!body) throw Error('服务器返回了无效的 JSON，请重试。');
         return typeof body.code === 'number' ? body.data : body;
@@ -114,6 +114,8 @@
         const old = {...context}; context.botId = botId; context.pluginId = pluginId;
         if (!await window.navigateTo('/sandbox')) Object.assign(context, old);
     }
-    window.PluginUI = {el, text, clone, canonical, button, select, notice, request, begin, dispose, mayLeave,
-        controlsBusy, errorMessage, errorDetails, JSONEditor, context, openSandbox};
+    // Neutral page helpers share lifecycle guards without exposing plugin selection state.
+    window.AdminUI = {el, text, clone, canonical, button, select, notice, request, begin, dispose, mayLeave,
+        controlsBusy, errorMessage, errorDetails};
+    window.PluginUI = {...window.AdminUI, JSONEditor, context, openSandbox};
 })();
