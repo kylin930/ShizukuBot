@@ -79,10 +79,19 @@ func Match(r Rule, e events.Event) Trace {
 }
 
 func expand(text string, e events.Event) (string, error) {
-	// NewReplacer performs one pass; user text is never recursively interpreted.
-	result := strings.NewReplacer("{用户ID}", e.UserID, "{群ID}", e.GroupID, "{BotID}", e.BotID, "{消息内容}", e.Message).Replace(text)
-	if len(result) > MaxReplyBytes {
+	// Count expansion before allocating it. These distinct literal tokens cannot
+	// overlap; inserted user text is never scanned again or interpreted as code.
+	pairs := []string{"{用户ID}", e.UserID, "{群ID}", e.GroupID, "{BotID}", e.BotID, "{消息内容}", e.Message}
+	size := len(text)
+	for i := 0; i < len(pairs); i += 2 {
+		size += strings.Count(text, pairs[i]) * (len(pairs[i+1]) - len(pairs[i]))
+	}
+	if size > MaxReplyBytes {
 		return "", errors.New("expanded_reply_limit")
+	}
+	result := strings.NewReplacer(pairs...).Replace(text)
+	if strings.TrimSpace(result) == "" {
+		return "", errors.New("expanded_reply_empty")
 	}
 	return result, nil
 }
@@ -145,7 +154,7 @@ func evaluate(ctx context.Context, set Set, e events.Event, skipBuiltin bool, se
 				text, err := expand(rule.Action.Text, e)
 				if err != nil {
 					t.Status = "limited"
-					t.Reason = "expanded_reply_limit"
+					t.Reason = err.Error()
 				} else if out.Attempts >= MaxReplyAttempts {
 					t.Status = "limited"
 					t.Reason = "reply_attempt_limit"

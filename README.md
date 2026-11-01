@@ -56,6 +56,12 @@ go build -o shizukubot .
 
 WebUI 只管理已编译插件，提供搜索筛选、独立状态、Schema 表单及 JSON 编辑、实例启停、配置/状态备份和结构化沙盒。保存可应用到当前插件实例；不上传源码安装运行。用法见 [插件管理与沙盒](docs/webui-plugin-management.md)。插件运行于主进程，必须可信并遵守 context；调试沙盒捕获回复、隔离临时状态，不提供文件/网络安全隔离。
 
+## 无需编程的自动回复
+
+进入 WebUI“规则”（`/#/rules`），选择真实 Bot，新建“包含你好 → 回复你好！”规则。新建默认禁用，可先测试草稿，再保存并启用；编辑、启停、删除立即作用于后续事件，不需要编译或重启。支持完全匹配、包含、前缀、群/C2C 范围、优先级与安全文本占位符。
+
+规则使用现有 EventBus、去重及回复能力。内置命令优先；规则和 Go 插件可同时响应，同关键词的 autoreply 插件可能额外回复。规则测试仅捕获预期结果，不发送 QQ，也不调用生产插件。操作、限额和版本冲突见 [规则指南](docs/rules-guide.md)，实现、测试与真实截图见 [P2.2 报告](docs/v2-p2-rules-report.md)。
+
 ## 旧数据升级
 
 先停止旧程序并备份数据：
@@ -80,6 +86,7 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o shizukubot.exe .
 - [架构](docs/architecture-v2.md)
 - [插件开发](docs/plugin-development.md) / [Go SDK](docs/plugin-sdk.md)
 - [旧数据迁移与回滚](docs/legacy-migration.md)
+- [P2.2 规则与自动回复交付报告](docs/v2-p2-rules-report.md)
 - [P2.1 插件后台与沙盒交付报告](docs/v2-p2-plugin-ui-report.md)
 - [P1.2 SDK 开发体验与测试报告](docs/v2-p1-sdk-dx-report.md)
 - [P1 Go 纠偏历史报告](docs/v2-p1-go-correction.md)

@@ -75,9 +75,10 @@
             list.replaceChildren();
             for (const rule of visible) {
                 const groupScope = rule.conditions.group_ids.length ? rule.conditions.group_ids.join(', ') : '所有群';
-                const item = U.el('mdui-list-item', {headline: rule.name, rounded: true, active: selectedId === rule.id, 'data-rule-id': rule.id,
-                    description: `${rule.enabled ? '已启用' : '已禁用'} · 优先级 ${rule.priority} · ${kinds[rule.trigger.type]} ${JSON.stringify(rule.trigger.value)}`});
-                item.append(U.text('span', `${rule.conditions.sources.join(' / ')} · ${groupScope}`, 'plugin-list-description'));
+                const item = U.el('mdui-list-item', {descriptionLine: 3, rounded: true, active: selectedId === rule.id, 'data-rule-id': rule.id,
+                    description: `${rule.enabled ? '已启用' : '已禁用'} · 优先级 ${rule.priority} · ${kinds[rule.trigger.type]} ${JSON.stringify(rule.trigger.value)} · ${rule.conditions.sources.join(' / ')} · ${groupScope}`});
+                // MDUI list headlines use the default slot, not a headline property.
+                item.append(U.text('span', rule.name));
                 scope.on(item, 'click', async () => {
                     if (rule.id === selectedId || !await U.mayLeave()) return;
                     selectRule(rule); renderList(); detail.scrollIntoView({block: 'start', behavior: 'smooth'});
@@ -88,7 +89,9 @@
         async function newRule() {
             if (!set || scope.busy || !await U.mayLeave()) return;
             if (set.rules.length >= 100) {U.notice(feedback, '每个 Bot 最多 100 条规则。', 'error'); return;}
-            draft = {id: 'rule-' + crypto.randomUUID(), name: '', enabled: false, priority: 100,
+            const token = crypto.getRandomValues(new Uint8Array(16));
+            const id = 'rule-' + Array.from(token, byte => byte.toString(16).padStart(2, '0')).join('');
+            draft = {id, name: '', enabled: false, priority: 100,
                 trigger: {type: 'contains', value: ''}, conditions: {sources: ['group', 'c2c'], group_ids: []},
                 action: {type: 'reply_text', text: ''}, stop_on_match: true};
             selectedId = draft.id; isNew = true; baseline = ''; renderList(); renderDetail();
@@ -121,7 +124,7 @@
             ]);
             if (!isNew) actions.append(U.button(r.enabled ? '立即禁用' : '立即启用', toggle, 'rule-toggle'), U.button('删除规则', remove, 'rule-delete'));
             detail.replaceChildren(U.text('h2', isNew ? '新建规则' : r.name), U.text('p', `${botId} · 修订 ${set.revision} · ${r.id}`, 'plugin-muted'),
-                U.text('p', '', 'plugin-warning'), U.el('div', {id: 'rules-dirty', class: 'plugin-muted'}),
+                U.el('div', {id: 'rules-dirty', class: 'plugin-muted'}),
                 U.el('div', {class: 'rules-form'}, [name, kind, keyword, source, groups,
                     U.text('p', '群列表为空表示不限群；仅约束群聊，不限制 C2C。所有条件按 AND 判断。', 'plugin-muted'),
                     reply, U.text('p', '占位符：{用户ID}、{群ID}、{BotID}、{消息内容}。不执行表达式，展开最多 8192 字节。', 'plugin-muted'),

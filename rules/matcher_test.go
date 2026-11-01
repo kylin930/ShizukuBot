@@ -130,3 +130,44 @@ func TestPlaceholderLimitsAndSinglePass(t *testing.T) {
 		t.Fatal(out, err)
 	}
 }
+
+func TestQuotasAndEmptyExpansion(t *testing.T) {
+	for _, change := range []func(*Rule){
+		func(r *Rule) { r.Action.Text = strings.Repeat("x", MaxTemplateBytes+1) },
+		func(r *Rule) { r.Conditions.GroupIDs = make([]string, MaxGroupIDs+1) },
+		func(r *Rule) { r.Conditions.Sources = []events.Source{events.Group, events.Group} },
+		func(r *Rule) { r.Conditions.GroupIDs = []string{"same", "same"} },
+		func(r *Rule) { r.Name = strings.Repeat("x", 129) },
+		func(r *Rule) { r.ID = strings.Repeat("x", 65) },
+	} {
+		r := sample("r")
+		change(&r)
+		if r.Validate() == nil {
+			t.Fatal("quota accepted", r.ID)
+		}
+	}
+	if _, err := Prepare(make([]Rule, MaxRules+1)); err == nil {
+		t.Fatal("rule count unbounded")
+	}
+	e := message()
+	e.GroupID = ""
+	if _, err := expand("{群ID}", e); err == nil || err.Error() != "expanded_reply_empty" {
+		t.Fatal(err)
+	}
+	e.Message = strings.Repeat("x", MaxMessageBytes)
+	if _, err := expand(strings.Repeat("{消息内容}", 100), e); err == nil {
+		t.Fatal("unbounded expansion")
+	}
+	r := sample("a")
+	r.Action.Text = "{群ID}"
+	other := sample("b")
+	out, err := evaluate(context.Background(), Set{Rules: []Rule{r, other}}, e, false, func(context.Context, events.Reply) error { return nil })
+	if err != nil || out.Traces[0].Status != "not_matched" {
+		t.Fatal(out, err)
+	}
+	e.Message = "你好"
+	out, err = evaluate(context.Background(), Set{Rules: []Rule{r, other}}, e, false, func(context.Context, events.Reply) error { return nil })
+	if err != nil || out.Traces[0].Reason != "expanded_reply_empty" || len(out.Replies) != 1 {
+		t.Fatal(out, err)
+	}
+}

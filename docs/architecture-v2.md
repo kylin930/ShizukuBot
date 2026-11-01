@@ -1,4 +1,4 @@
-# ShizukuBot v2 架构：Go 原生 P1.2
+# ShizukuBot v2 架构：Go 原生 P2.2
 
 ## 生产事件链路
 
@@ -8,6 +8,9 @@ flowchart LR
     Adapter --> Bot[core.Bot]
     Bot --> Dispatcher[events.Dispatcher 去重]
     Dispatcher --> Bus[events.Bus]
+    Bus --> Builtin[核心内置命令优先]
+    Bus --> Rules[rules.Engine 单订阅 / 按 Bot 快照]
+    Rules --> Reply
     Bus --> Manager[plugins.Manager 按 Bot 订阅]
     Registry[编译期 Registry] --> Manager
     Manager --> Plugin[独立 Go 插件实例]
@@ -36,7 +39,7 @@ CommandPlugin、EventPlugin、Define 生成普通 Extension：每个 New 返回�
 
 同实例初始化、事件和停止通过可取消 gate 串行；不同实例可并行。Disable/Close 先取消 context、取消订阅，再等待在途调用并清理；重复 Enable 不创建重复实例/订阅。Bot 的连接与插件启用独立，Bot 重连复用订阅，停止 Bot 后不再产生事件；需要释放插件资源时禁用插件。框架关闭统一清理。
 
-Bus 按订阅顺序同步广播。多个插件可响应同一普通指令；一个实例的指令回调、匹配事件回调及 HandleEvent 均可执行。核心已处理的内置命令通过纯路由策略跳过插件，沙盒只测试插件。命令默认 `/` 前缀、支持引号和转义，其他前缀可用事件回调。
+Bus 按订阅顺序同步广播。多个插件可响应同一普通指令；一个实例的指令回调、匹配事件回调及 HandleEvent 均可执行。核心已处理的内置命令通过纯路由策略跳过规则和插件。插件沙盒只测试插件；规则页预览只评估规则。命令默认 `/` 前缀、支持引号和转义，其他前缀可用事件回调。
 
 调用默认 2 秒，**Go 超时是合作取消**，不强行杀死 goroutine。回调的 error/panic 会记录到状态并返回，其他回调和订阅继续执行；后续调用允许恢复，管理员也可重启实例。框架不再采用进程崩溃重建或 IPC 退避机制。后台 goroutine 必须自行 recover/同步、遵守 context 并在 Stop 中等待释放。
 
@@ -59,3 +62,17 @@ sdk.Host 提供 BotID、配置快照、状态、日志、生命周期和注册�
 沙盒每次创建独立 Go 实例、临时状态和捕获型 Reply，最多并发四个；不复用生产 sender、状态或订阅。它可验证回复和错误，不限制插件自行产生的副作用。
 
 认证、CSRF、HTTPS Cookie 策略、日志 WebSocket 授权和凭证脱敏沿用 P0。WebUI 继续使用 MDUI 2 的普通浏览器 JavaScript，静态分发，无后端 Node 依赖。旧图只在离线迁移工具读取，详见 [迁移说明](legacy-migration.md)。P1.2 验证与兼容说明见 [SDK 开发体验报告](v2-p1-sdk-dx-report.md)，原 Go 纠偏记录保留为历史。
+
+## P2.2 轻量规则边界
+
+`rules` 只依赖标准库和 `events`，不导入 SDK、plugins、QQ DTO 或流程图。Router 组合顺序为核心订阅 → 单个规则订阅 → Restore/Enable 的 Go 插件订阅；不修改 Bus 优先级机制。沿用 Dispatcher admission/消息身份去重，不注册第二套平台回调。Transport/Bot/SDK API 保持原样。
+
+Engine 按 Bot 缓存原子指针指向的不可变 Set。CRUD 完整校验和复制，在该 Bot 的写锁内比较 revision、原子替换文件，再发布快照。事件读取快照不持写锁，网络回复在锁外；不同 Bot 没有共享写入锁。已开始事件允许完成旧版本，新读取使用成功提交的版本。内存中每个访问过的 Bot 快照保留至 Engine 关闭，删除 Bot 不自动删除其规则数据。
+
+Store 用 os.Root 限定目录，以 BotID 的 SHA-256 文件名隔离；文件带 Schema/Bot/revision 校验。未知或损坏版本保留报错，失败不发布新快照。单进程 writer，不提供多进程锁、运行中外部编辑侦测或跨 Bot 事务；Rename 的跨平台及断电边界见 [规则指南](rules-guide.md)。
+
+只对群/群 @/C2C 消息执行 exact/contains/prefix 和固定 AND 条件。按 priority 降序、ID 升序；仅回复成功且 stop_on_match 才停止后续规则，发送失败继续。最多三次发送尝试，模板展开前有界检查。规则停止不会拦截后续 Go 插件，autoreply 配置冲突可能产生额外回复，界面明确提醒。
+
+Execute/Preview 共享纯 Match 和同一 evaluate 循环。Preview 替换为捕获 sender，不发布到 Bus、不调用生产插件、不写配置或状态。规则 API 必须验证真实 Bot 和管理员，CAS 冲突保留草稿。Router.Close 先取消规则生命周期、取消订阅并等待在途调用，再关闭插件管理器；5 秒执行超时及关闭仍是合作取消，不另开无法回收的强杀 goroutine。
+
+`AdminUI` 暴露中立的安全 DOM/请求/作用域/未保存保护工具，PluginUI 保留兼容导出和私有插件选择状态，规则页拥有自己的 Bot/草稿状态。只增加一个 Rail 与 Drawer 入口；没有更换 MDUI、SDK、Manifest 或 Registry。没有正则、冷却、定时、脚本、工作流、网络/文件动作或新的依赖。

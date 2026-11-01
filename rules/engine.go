@@ -33,6 +33,7 @@ type Engine struct {
 	done    chan struct{}
 }
 
+// NewEngine owns store until Close; configure callbacks and Timeout before use.
 func NewEngine(store *Store) *Engine {
 	life, cancel := context.WithCancel(context.Background())
 	return &Engine{store: store, life: life, cancel: cancel, Timeout: 5 * time.Second, done: make(chan struct{})}

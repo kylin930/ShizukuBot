@@ -23,6 +23,7 @@ type Store struct {
 	closeErr error
 }
 
+// NewStore opens a scoped directory without changing existing rule files.
 func NewStore(directory string) (*Store, error) {
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		return nil, err
