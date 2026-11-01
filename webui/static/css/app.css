@@ -715,3 +715,38 @@ mdui-list {
     }
 
 }
+
+/* Plugin administration: retain MDUI 2 surfaces and existing navigation. */
+.plugin-toolbar, .plugin-actions { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:12px 0; }
+.plugin-toolbar mdui-select { min-width:240px; max-width:100%; }
+.plugin-workspace { display:grid; grid-template-columns: minmax(240px,310px) minmax(0,1fr); gap:16px; align-items:start; }
+.plugin-sidebar, .plugin-detail { padding:16px; min-width:0; }
+.plugin-sidebar { display:flex; flex-direction:column; gap:12px; }
+.plugin-sidebar mdui-list { max-height:70vh; overflow:auto; }
+.plugin-sidebar mdui-list-item { cursor:pointer; }
+.plugin-list-description { font-size:12px; overflow-wrap:anywhere; }
+.plugin-detail h2 { margin-top:0; overflow-wrap:anywhere; }
+.plugin-detail p, .plugin-facts dd { overflow-wrap:anywhere; }
+.plugin-section { padding-top:16px; margin-top:16px; border-top:1px solid rgb(var(--mdui-color-outline-variant)); }
+.plugin-facts { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:8px 16px; font-size:14px; }
+.plugin-facts dt, .plugin-muted { color:rgb(var(--mdui-color-on-surface-variant)); }
+.plugin-facts dd { margin:0; }
+.plugin-notice { padding:12px 16px; border-radius:12px; margin:12px 0; overflow-wrap:anywhere; background:rgb(var(--mdui-color-surface-container)); }
+.plugin-notice.error, .plugin-error-details { color:rgb(var(--mdui-color-error)); }
+.plugin-notice.error { background:rgb(var(--mdui-color-error-container)); color:rgb(var(--mdui-color-on-error-container)); }
+.plugin-notice.success { background:rgb(var(--mdui-color-secondary-container)); color:rgb(var(--mdui-color-on-secondary-container)); }
+.plugin-warning { color:rgb(var(--mdui-color-on-surface-variant)); }
+.plugin-detail pre, .plugin-error-details pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:360px; overflow:auto; font-size:13px; }
+.plugin-error-details summary { cursor:pointer; overflow-wrap:anywhere; }
+.plugin-json { display:block; width:100%; min-height:200px; resize:vertical; box-sizing:border-box; padding:12px; border-radius:8px; color:rgb(var(--mdui-color-on-surface)); background:rgb(var(--mdui-color-surface)); border:1px solid rgb(var(--mdui-color-outline)); }
+.plugin-empty { padding:16px; }
+@media (max-width:900px) {
+    .plugin-workspace { grid-template-columns:1fr; }
+    .plugin-sidebar mdui-list { max-height:270px; }
+    .plugin-toolbar mdui-select { flex:1; min-width:0; width:100%; }
+    .plugin-toolbar { align-items:stretch; }
+    .plugin-actions mdui-button { flex:1; }
+}
+@media (prefers-reduced-motion:reduce) {
+    .page-content, .page-content.fade-in, .page-content.fade-out { transition:none; transform:none; }
+}
