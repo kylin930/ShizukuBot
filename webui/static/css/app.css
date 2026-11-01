@@ -783,3 +783,5 @@ mdui-list {
     .sandbox-toolbar mdui-select, .sandbox-toolbar mdui-text-field { flex-basis:100%; }
     .plugin-facts { grid-template-columns:max-content minmax(0,1fr); }
 }
+.plugin-page-surface { padding:16px; box-sizing:border-box; min-width:0; }
+.plugin-detail { scroll-margin-block-start:80px; }

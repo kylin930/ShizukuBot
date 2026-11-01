@@ -17,7 +17,7 @@ func Definition() sdk.Definition {
 
 ## 事件、配置和状态
 
-EventPlugin 接收 Meta、`[]sdk.EventType`、EventHandler 和可选 Options。规范常量包括 GroupMessage、GroupAtMessage、C2CMessage、GuildMessage、AtMessage、DirectMessage、Interaction、C2CFriend、SubscribeMessageStatus、GroupManage、C2CManage、AnyEvent；自定义字符串仍可转换成 EventType，原规范化规则不变。
+EventPlugin 接收 Meta、`[]sdk.EventType`、EventHandler 和可选 Options。规范常量包括 GroupMessage、GroupAtMessage、C2CMessage、GuildMessage、AtMessage、DirectMessage、Interaction、C2CFriend、SubscribeMessageStatus、GroupManage、C2CManage、AnyEvent；自定义字符串仍可转换成 EventType，原规范化规则不变。EventPlugin 按首次出现顺序去重，ValidEventType 拒绝空、超过 128 字节、非法 UTF-8 或含空白/控制字符的类型，自定义类型仍可使用。
 
 CommandHandler 和 EventHandler 都是 `func(context.Context, Call) error` 的别名，保留编译期检查和原 Host 的方法签名，不隐藏 error。
 
@@ -36,7 +36,7 @@ Call 只有一个规范 Event：BotID、Type、PlatformType、EventID、MessageI
 
 所有发送均使用同一主机回复能力，检查 message.send 和来源支持范围。群/C2C 使用核心媒体实现，频道/私信当前只有文本，其他媒体返回明确 unsupported。Reply 不得保存到回调结束后使用，传播传入 context，不暴露 QQ 客户端或其他 Bot sender。
 
-配置 schema 保留原方言和校验：object、string、boolean、number、integer、array、properties、required、default、enum、minimum、maximum、items；未知字段拒绝，非完整 JSON Schema。Configure 保存后重启实例生效。State 按插件/Bot 隔离，key 最长 128、单值 64KiB、每文件 1MiB，原子写入；没有跨实例事务。自行创建的 goroutine 必须同步复合读改写。
+Schema 增加兼容的 `description` 字段供后台显示说明；数组错误带具体索引。配置 schema 保留原方言和校验：object、string、boolean、number、integer、array、properties、required、default、enum、minimum、maximum、items；未知字段拒绝，非完整 JSON Schema。Configure 保存后重启实例生效。State 按插件/Bot 隔离，key 最长 128、单值 64KiB、每文件 1MiB，原子写入；没有跨实例事务。自行创建的 goroutine 必须同步复合读改写。
 
 ## 构造器和校验时机
 
@@ -92,11 +92,22 @@ Simple/Advanced 都导出 `Definition() sdk.Definition`，`go generate ./pluginr
 | 方法与路径 | 行为 |
 | --- | --- |
 | GET `/api/plugins`，`/api/plugins/{id}?bot_id=...` | 已编译目录、元数据、状态、指定 Bot 配置 |
-| PUT `/api/plugins/{id}` | `{bot_id,config}`，返回 restart_required |
+| PUT `/api/plugins/{id}` | `{bot_id,config,apply?:false}`；返回 saved/applied/restart_required，应用失败附 restart_error |
 | POST `/api/plugins/{id}/toggle` | `{bot_id,enabled}` |
 | POST `/api/plugins/{id}/restart` | `{bot_id}`，保留状态 |
 | GET `/api/plugins/{id}/export` | 私有 JSON 配置/状态备份 |
-| POST `/api/plugins/data/restore` | 空 scope 恢复，保持禁用 |
-| POST `/api/bots/{id}/sandbox/send` | `{type:"group"或"c2c",content,plugin_id?}`，返回 replies/results/errors/executions |
+| POST `/api/plugins/data/restore` | 4 MiB JSON，真实 Bot 的空数据 scope 恢复，保持禁用 |
+| POST `/api/bots/{id}/sandbox/send` | `{type:"group"或"c2c",content,plugin_id?,independent?:false}`，保留 replies/results/errors/executions |
 
 旧代码安装/卸载仍为 410，图相关路由仍为 404。沙盒为每次运行创建新实例、临时状态和捕获 Reply，不需要 QQ、不发送真实消息，但不限制可信插件自行访问系统资源。本轮不包含 `.so`、RPC/IPC、热加载或自动安装，也不承诺未来进程外协议可以无修改复用当前同步接口。
+
+
+### P2.1 管理状态与调试事实
+
+正式插件列表/详情接受 bot_id 时验证真实 Bot；启停、配置、重启、恢复也在服务端验证范围。PluginInfo 保留旧字段，增加 compiled、bot_id、bot_exists、bot_running、allowed、running、state、last_error、config_error、restart_required。running 表示活动实例，State 仍可为 error；与 Bot 连接和选择策略分别解释。config 返回当前保存配置补上 Schema 默认值。
+
+PUT 的 apply 默认 false，保持旧客户端显式重启流程。apply=true 仅在活动实例的有效配置快照不一致时调用原 Manager.Restart；配置校验失败不更改已保存值或运行实例。保存成功但重启失败返回 saved=true、applied=false、restart_error，不能当成整个请求失败后盲目重复保存。restart_required 反映当前实际配置差异，不无条件为 true。相同插件/Bot 的管理变更串行，普通查询不被全局锁阻塞。
+
+Debug 保留原 error-only 方法；运行时增加 DebugWithResult 返回 MatchKnown/Matched，由真实注册匹配逻辑得出。ExecutionResult 保留 completed/failed 的 status，增加 outcome（replied/no_reply/unmatched/failed/timeout/canceled）、matched（未知时省略）、reply_count、duration_ms。duration_ms 包含当前实例初始化、执行及清理，来自实际测量。处理器主动不回复是 no_reply，不能当成 unmatched。
+
+沙盒响应增加 configuration_source、independent。independent=true 强制默认配置和临时状态，不读取生产启用列表，须显式选择插件；否则读取该标识已保存配置及默认值。显式测试不受生产启用或允许列表限制，不改变生产订阅。真实 Bot 的“全部”只运行已启用且策略允许的插件。旧字段和路径不变，原代码安装接口仍为 410。

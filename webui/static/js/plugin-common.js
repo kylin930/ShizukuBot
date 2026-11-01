@@ -27,7 +27,11 @@
     function button(label, action, id, variant = 'outlined') {
         const node = el('mdui-button', {text: label, variant, id});
         node.addEventListener('click', () => Promise.resolve().then(action).catch(error => {
-            if (error.name !== 'AbortError') window.showSnackbar?.(error.message);
+            if (error.name !== 'AbortError' && node.isConnected) {
+                const host = node.closest('.plugin-page-surface')?.querySelector('#plugin-feedback, #sandbox-feedback');
+                if (host) notice(host, errorMessage(error), 'error');
+                else window.showSnackbar?.('操作失败，请检查输入。');
+            }
         }));
         return node;
     }
@@ -87,6 +91,7 @@
         return leavePromise;
     }
     function controlsBusy(root, busy) {
+        root.inert = busy;
         root.querySelectorAll('mdui-button, mdui-button-icon, mdui-select, mdui-text-field, mdui-switch, mdui-checkbox, textarea, input').forEach(control => {
             if (busy) {control.dataset.wasDisabled = String(Boolean(control.disabled)); control.disabled = true;}
             else if (Object.hasOwn(control.dataset, 'wasDisabled')) {control.disabled = control.dataset.wasDisabled === 'true'; delete control.dataset.wasDisabled;}

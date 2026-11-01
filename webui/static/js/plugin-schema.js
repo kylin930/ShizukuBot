@@ -153,7 +153,15 @@
             host.append(section);
             if (!required) {
                 const enabled = U.el('mdui-checkbox', {checked: current !== undefined, text: '设置此字段', 'aria-label': '设置字段 ' + label});
-                enabled.addEventListener('change', () => {if (this.invalid.size) {enabled.checked = current !== undefined; U.notice(this.feedback, '请先修正无效数值再修改字段。', 'error'); return;} this.set(path, enabled.checked ? defaultValue(schema) : undefined); this.render();});
+                enabled.addEventListener('change', async () => {
+                    if (this.invalid.size) {enabled.checked = current !== undefined; U.notice(this.feedback, '请先修正无效数值再修改字段。', 'error'); return;}
+                    this.set(path, enabled.checked ? defaultValue(schema) : undefined);
+                    // MDUI performs checked/validity work after its update promise.
+                    // Preserve the draft immediately, then detach only after that work.
+                    await enabled.updateComplete;
+                    await new Promise(resolve => requestAnimationFrame(resolve));
+                    if (enabled.isConnected) this.render();
+                });
                 section.append(enabled);
                 if (current === undefined) {section.append(U.text('span', own(schema, 'default') ? ' 未设置时由后端填入默认值' : ' 未设置', 'plugin-muted')); return;}
             }

@@ -59,12 +59,17 @@ async function apiDelete(url) {
 // ==================== 路由管理 ====================
 let routeRenderTimer = null;
 async function navigateTo(route) {
-    if (!await window.PluginUI.mayLeave()) return false;
+    if (!await window.PluginUI.mayLeave()) {syncNavigation(currentRoute); return false;}
     window.PluginUI.dispose();
     currentRoute = route;
     window.location.hash = route;
     renderPage();
 
+    syncNavigation(route);
+    return true;
+}
+
+function syncNavigation(route) {
     // 更新移动端导航项激活状态
     document.querySelectorAll('.nav-item').forEach(item => {
         item.active = item.dataset.route === route;
@@ -87,7 +92,6 @@ async function navigateTo(route) {
         };
         rail.value = routeMap[route] || 'stats';
     }
-    return true;
 }
 
 function renderPage() {

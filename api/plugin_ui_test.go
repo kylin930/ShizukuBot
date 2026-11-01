@@ -173,3 +173,31 @@ func TestGlobalConfigurationDoesNotDisableBots(t *testing.T) {
 		t.Fatal("global save disabled a bot", out)
 	}
 }
+
+func TestIndependentSandboxUsesDefaultsWithoutProductionChanges(t *testing.T) {
+	r, c := setupRouter(t)
+	addManagementBot(t, r, "a", nil)
+	if err := r.plugins.Configure("counter", "a", map[string]any{"prefix": "production-private"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.plugins.Enable(context.Background(), "counter", "a"); err != nil {
+		t.Fatal(err)
+	}
+	before, err := r.plugins.ExportBackup("counter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := request(r, c, "POST", "/api/bots/a/sandbox/send", `{"content":"/count","plugin_id":"counter","independent":true}`)
+	var out SandboxMessageResponse
+	if err = json.Unmarshal(response.Body.Bytes(), &out); err != nil || len(out.Replies) != 1 || out.Replies[0] != "计数: 1" || out.ConfigurationSource != "defaults" {
+		t.Fatal(response.Body.String(), err)
+	}
+	after, err := r.plugins.ExportBackup("counter")
+	if err != nil || string(before) != string(after) || !r.plugins.Config("counter", "a").Enabled {
+		t.Fatal("independent debug altered production", err)
+	}
+	response = request(r, c, "POST", "/api/bots/a/sandbox/send", `{"content":"/count","independent":true}`)
+	if err = json.Unmarshal(response.Body.Bytes(), &out); err != nil || len(out.Executions) != 0 {
+		t.Fatal("independent debug read production enable list", response.Body.String(), err)
+	}
+}

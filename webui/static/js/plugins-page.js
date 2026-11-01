@@ -20,8 +20,8 @@
         const botSelect = U.select('管理机器人', [], '', 'plugin-bot-select');
         sidebar.append(search, filter, list); body.append(sidebar, detail);
         toolbar.append(botSelect, U.button('刷新状态', () => reload(true), 'plugin-refresh'));
-        container.replaceChildren(U.text('h1', '代码插件', 'page-title'),
-            U.text('p', '管理已编译插件的配置和实例。Go 源码变更仍需重新构建和部署。', 'plugin-muted'), toolbar, feedback, body);
+        container.replaceChildren(U.el('div', {class: 'plugin-page-surface'}, [U.text('h1', '代码插件', 'page-title'),
+            U.text('p', '管理已编译插件的配置和实例。Go 源码变更仍需重新构建和部署。', 'plugin-muted'), toolbar, feedback, body]));
         scope.dirty = () => Boolean(editor?.isDirty());
         scope.on(search, 'input', renderList); scope.on(filter, 'change', renderList);
         scope.on(botSelect, 'change', async () => {
@@ -42,7 +42,7 @@
                 bots = nextBots.sort((a, b) => a.id.localeCompare(b.id));
                 if (!bots.some(bot => bot.id === botId)) botId = bots.some(bot => bot.id === U.context.botId) ? U.context.botId : bots[0]?.id || '';
                 botSelect.replaceChildren(...bots.map(bot => U.el('mdui-menu-item', {value: bot.id, text: `${bot.name || bot.id} · ${bot.id}`})));
-                botSelect.value = botId; botSelect.disabled = !bots.length;
+                botSelect.value = botId; botSelect.disabled = !bots.length; filter.disabled = !botId; if (!botId) filter.value = 'all';
                 U.context.botId = botId;
                 const data = await scope.request('/api/plugins' + (botId ? '?bot_id=' + encodeURIComponent(botId) : ''));
                 if (!scope.current() || version !== revision) return;
@@ -87,9 +87,9 @@
             const overview = U.el('dl', {class: 'plugin-facts'});
             const facts = [
                 ['插件 ID', plugin.id], ['版本', plugin.version], ['作者', plugin.author || '未填写'], ['运行时', plugin.runtime],
-                ['当前 Bot', botId || '未选择'], ['注册', plugin.compiled ? '已编译' : '未知'], ['生产配置', plugin.enabled ? '已启用' : '已禁用'],
+                ['当前 Bot', botId || '未选择'], ['注册', plugin.compiled ? '已编译' : '未知'], ['生产配置', !botId ? '未选择 Bot' : plugin.enabled ? '已启用' : '已禁用'],
                 ['选择策略', !botId ? '未选择 Bot' : plugin.allowed ? '允许此插件' : '排除此插件'],
-                ['插件实例', plugin.running ? '已启动' : '未启动'], ['实例状态', stateNames[plugin.state] || plugin.state || '未知'],
+                ['插件实例', !botId ? '未选择 Bot' : plugin.running ? '已启动' : '未启动'], ['实例状态', !botId ? '未选择 Bot' : stateNames[plugin.state] || plugin.state || '未知'],
                 ['Bot 连接', plugin.bot_running ? '运行中' : '未连接'],
             ];
             for (const [name, value] of facts) overview.append(U.text('dt', name), U.text('dd', value));
@@ -135,7 +135,7 @@
                 else result = await scope.request(`/api/plugins/${encodeURIComponent(plugin.id)}/${action === 'toggle' ? 'toggle' : 'restart'}`, {method: 'POST', body: {bot_id: chosenBot, ...(action === 'toggle' ? {enabled: !plugin.enabled} : {})}});
                 if (!scope.current()) return;
                 editor = null;
-                scope.busy = false; U.controlsBusy(container, false);
+                scope.busy = false;
                 const refreshed = await reload(false);
                 if (!scope.current()) return;
                 if (!refreshed) {U.notice(feedback, '操作已提交，但刷新实际状态失败：' + loadError + (result?.restart_error ? '；插件实例重启失败：' + result.restart_error : ''), 'error'); return;}
@@ -160,7 +160,7 @@
             try {
                 await scope.request('/api/plugins/data/restore', {method: 'POST', body: await chosen.text(), rawBody: true});
                 if (!scope.current()) return;
-                scope.busy = false; U.controlsBusy(container, false); editor = null; await reload(false);
+                scope.busy = false; editor = null; await reload(false);
                 U.notice(feedback, '数据已恢复，插件保持禁用。', 'success');
             } catch (error) {if (scope.current()) U.notice(feedback, U.errorMessage(error), 'error');}
             finally {scope.busy = false; if (scope.current()) U.controlsBusy(container, false);}

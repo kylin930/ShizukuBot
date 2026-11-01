@@ -49,8 +49,8 @@
         const clear = U.button('清空会话', () => {turns = []; renderTurns();}, 'sandbox-clear');
         const toolbar = U.el('div', {class: 'sandbox-toolbar'}, [botSelect, debugId, pluginSelect, type, clear]);
         const note = U.el('div', {id: 'sandbox-scope-note', class: 'plugin-notice'});
-        container.replaceChildren(U.text('h1', '沙盒测试', 'page-title'), toolbar, note, feedback,
-            U.el('mdui-card', {variant: 'outlined', class: 'sandbox-workspace'}, [chat, U.el('div', {class: 'sandbox-compose'}, [input, send])]));
+        container.replaceChildren(U.el('div', {class: 'plugin-page-surface'}, [U.text('h1', '沙盒测试', 'page-title'), toolbar, note, feedback,
+            U.el('mdui-card', {variant: 'outlined', class: 'sandbox-workspace'}, [chat, U.el('div', {class: 'sandbox-compose'}, [input, send])])]));
         scope.on(botSelect, 'change', async () => {if (scope.busy) return; selected = botSelect.value; turns = []; renderTurns(); await loadPlugins();});
         scope.on(debugId, 'change', async () => {if (!scope.busy) {turns = []; renderTurns(); await loadPlugins();}});
         scope.on(pluginSelect, 'change', updateNote);
