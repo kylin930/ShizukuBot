@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"runtime"
 	"shizukubot/events"
-	sdk "shizukubot/plugins"
+	"shizukubot/sdk"
 )
 
 // Definition retains the existing framework information command.

@@ -1,23 +1,67 @@
 # Go Plugin SDK v1
 
-公共类型位于 `plugins/model.go`、`plugins/catalog.go` 和 `events/events.go`，与 QQ SDK DTO、LiteGraph 和旧节点无关。
+## 从 Hello 开始
 
-## 定义与注册
+```go
+func Definition() sdk.Definition {
+    return sdk.CommandPlugin(
+        sdk.Meta{ID: "hello", Name: "Ping / Pong", Version: "1.0.0"},
+        "ping", func(ctx context.Context, c sdk.Call) error {
+            return c.Reply(ctx, "pong")
+        },
+    )
+}
+```
+
+完整 package/import、构建和独立测试见 [五分钟创建插件](plugin-development.md)。插件只需 import `shizukubot/sdk`，无需了解 Manager 或 EventBus。SDK 不依赖具体运行时、Registry、QQ DTO 或 LiteGraph。
+
+## 事件、配置和状态
+
+EventPlugin 接收 Meta、`[]sdk.EventType`、EventHandler 和可选 Options。规范常量包括 GroupMessage、GroupAtMessage、C2CMessage、GuildMessage、AtMessage、DirectMessage、Interaction、C2CFriend、SubscribeMessageStatus、GroupManage、C2CManage、AnyEvent；自定义字符串仍可转换成 EventType，原规范化规则不变。
+
+CommandHandler 和 EventHandler 都是 `func(context.Context, Call) error` 的别名，保留编译期检查和原 Host 的方法签名，不隐藏 error。
+
+WithConfig(schema) 设置 schema 并授予 config.read；WithPermissions(...) 明确追加需要的框架能力。当前权限为 events.subscribe、commands.register、message.send、config.read、state.read、state.write、log.write，未知权限拒绝。它们不是操作系统安全策略。
+
+Call 只有一个规范 Event：BotID、Type、PlatformType、EventID、MessageID、Source、UserID、GroupID、ChannelID、GuildID、Message、Raw、PluginIDs 和 Reply。Args 为命令参数，Config 为独立配置快照，State 为当前插件/Bot 存储，Log 为受检查日志能力。Raw 是不可信平台数据，不含鉴权头或核心对象。字段视为只读。
+
+| 常用调用 | 行为 |
+| --- | --- |
+| `c.Reply(ctx,text)` | 当前事件的文本回复 |
+| `c.Send(ctx,sdk.Reply{...})` | text、image、rich_media、markdown、keyboard、video；携带 Text/URL/Keyboard |
+| `c.ReplyMarkdown(ctx,text)` | 透传 Markdown 回复 |
+| `c.ReplyImage(ctx,url)` | 透传图片回复 |
+| `c.State.Get(ctx,key)` | JSON RawMessage，缺失返回 nil；需 state.read |
+| `c.State.Set(ctx,key,value)` | 合法 JSON；需 state.write |
+
+所有发送均使用同一主机回复能力，检查 message.send 和来源支持范围。群/C2C 使用核心媒体实现，频道/私信当前只有文本，其他媒体返回明确 unsupported。Reply 不得保存到回调结束后使用，传播传入 context，不暴露 QQ 客户端或其他 Bot sender。
+
+配置 schema 保留原方言和校验：object、string、boolean、number、integer、array、properties、required、default、enum、minimum、maximum、items；未知字段拒绝，非完整 JSON Schema。Configure 保存后重启实例生效。State 按插件/Bot 隔离，key 最长 128、单值 64KiB、每文件 1MiB，原子写入；没有跨实例事务。自行创建的 goroutine 必须同步复合读改写。
+
+## 构造器和校验时机
+
+| 构造器 | 默认权限 | 初始化行为 |
+| --- | --- | --- |
+| CommandPlugin(meta,name,handler,options...) | commands.register、message.send | Load 调用 Host.Command |
+| EventPlugin(meta,types,handler,options...) | events.subscribe、message.send | Load 为各类型调用 Host.On |
+| Define(meta,register,options...) | commands.register、events.subscribe、message.send | 每实例 Load 调用 `func(Registrar) error` |
+
+三者默认 APIVersion=当前 SDK major、Runtime=go、ConfigSchema=空 object，不默认授予配置/状态/日志。Meta 包含 ID、Name、Version、Description、Author；Version 必须是显式 major.minor.patch（可附 prerelease），没有隐式默认值。ID 为 1–64 个字母/数字/下划线/短横线，首位为字母或数字；名称不能空白。
+
+构造器返回 Definition，不因普通注册失败 panic。`Meta.Validate`、`Manifest.Validate`、`Definition.Validate` 可显式检查，Registry.Register 自动调用 Definition.Validate，**不会为了检查而构造/执行插件**。无效元数据/schema/权限/空工厂在此返回错误；无效指令、nil handler、空事件列表、重复命令或注册回调错误在 Load 中返回，由 Manager 记录状态并清理。
+
+Registrar 在注册回调返回后封闭，不能继续修改表；它会保留首次注册错误，防止忽略返回值后误报成功。仍应显式返回每个错误。Native 在 Start 后保留原有封闭检查。
+
+每次 New 都创建新 Extension，Define 注册回调每实例执行。CommandPlugin/EventPlugin 传入的处理函数应无共享可变外部状态；SDK 无法复制 Go 闭包捕获的对象。实例局部可变状态放在 Define 注册回调内部或 Advanced 结构体中，持久状态放在 Call.State。
+
+## Advanced API 与生命周期
 
 ```go
 type Definition struct {
     Manifest Manifest
     New func() Extension
 }
-```
 
-Manifest 使用 API major 1，ID 为 1–64 个字母/数字/下划线/短横线（首位字母或数字），Version 为 semver，Runtime 为 `go`，另有 Name、Description、Author、Permissions、ConfigSchema。Registry.Register 校验并拒绝重复 ID；构造函数必须返回新的对象，禁止多 Bot 共用可变单例。Manager 构造时复制 Registry。
-
-普通包暴露 `Definition()`，通过生成的 `pluginregistry.New()` 自动汇总；也可显式 `registry.Register(definition)`。`go generate ./pluginregistry` 后需测试、重新构建并部署。WebUI 不安装源码，修改源码后仅点“重启”不能替换二进制中的代码。
-
-## 接口与生命周期
-
-```go
 type Extension interface {
     Load(context.Context, Host) error
     Start(context.Context) error
@@ -27,48 +71,32 @@ type Extension interface {
 }
 ```
 
-嵌入 `plugins.Base` 可获得无操作默认方法，只覆盖需要的 hook。Host 提供：
+Advanced 保留全部 Manifest 字段：APIVersion、ID、Name、Version、Description、Author、Runtime、Permissions、ConfigSchema；需显式声明兼容性和权限。嵌入 `sdk.Base` 可获取无操作默认方法，覆盖需要的 hook。工厂必须返回新对象，不能共享可变单例。
 
-| 方法 | 用途 |
-| --- | --- |
-| Context() | 长期生命周期 context，禁用/关闭/调试结束或初始化失败时取消 |
-| BotID() | 当前实例的 Bot 标识 |
-| Config() | config.read 下的独立配置快照，无权限时为空 |
-| State() | state.read/state.write 权限检查后的当前 Bot 状态 |
-| Log(string) | log.write 下写入管理日志 |
-| Command(name, handler) | 注册不带 `/` 的指令；需要 commands.register |
-| On(eventType, handler) | 规范类型或 `*`；需要 events.subscribe |
+Host 嵌入 Registrar，并提供 Context()、BotID()、Config()、State()、Log(string)，方法集合与之前相同。Host.Context 是长期生命周期；初始化 context 仅用于 Load/Start。禁用/关闭/初始化失败/沙盒结束时先取消生命周期，再 Stop/Unload。清理须允许部分初始化；后台任务必须自行同步、响应取消，并在 Stop 等待释放。
 
-Load/Start 注册后封闭，同实例重复命令拒绝。一个事件可同时触发指令、事件监听和 HandleEvent；HandleEvent 只在至少一个注册匹配时调用。多插件同名指令不会覆盖；核心内置命令在生产中优先消费。
+Simple 内部生成普通 Extension，仍经过同一 Native、Manager、实例 gate、EventBus 过滤、配置/状态/回复权限和 panic 捕获。一个事件可同时触发指令、事件回调与 HandleEvent；HandleEvent 只在注册匹配时调用。多插件同名指令可分别响应，核心内置命令生产中优先消费。
 
-初始化 context 只用于初始化，后台任务监听 Host.Context，并由 Stop 等待释放。Stop 和 Unload 在初始化失败时也可能调用，应允许部分初始化。事件、初始化和停止串行；回调须遵守 context。默认 2 秒超时只请求取消，不能抢占不合作的 Go 代码。回调 panic 转为错误，其他处理器继续执行；自行创建的 goroutine 要自行处理 panic 和同步。
+同实例串行，不同实例可并行；默认 2 秒超时是合作取消。错误/panic 不阻断其他回调，后续调用可恢复。回调 recover 不覆盖插件创建的独立 goroutine、os.Exit 或资源耗尽，同进程可信代码没有 OS 隔离。
 
-## 事件上下文与能力
+`sdk.ParseCommand` 保留 `/` 前缀、Unicode 空白、引号/反斜杠、无 shell 展开的语义；未闭合引号不匹配。`sdk.CommandText` 保留已知机器人 mention 处理及回退规则，原始 Event.Message 不改写。
 
-Call 包含 Event、Args、Config、State、Log。Event 提供 BotID、Type、PlatformType、EventID、MessageID、Source、UserID、GroupID、ChannelID、GuildID、Message、Raw 和 Bot 的插件选择。Raw 是不可信平台数据，应按需要验证；不含鉴权头或核心对象。上下文及事件字段视为只读。
+## 注册、兼容与管理 API
 
-`Call.Reply(ctx,text)` 发送文本，`Call.Send(ctx,events.Reply{...})` 发送其他类型。Kind 支持 text、image、rich_media、markdown、keyboard、video，可带 Text、URL、Keyboard。需要 message.send，绑定当前事件的来源。不能保存 Reply 并在回调结束后使用，须传播传入 context。群/C2C 使用核心已有媒体能力，频道/私信目前支持文本，其他媒体返回明确错误。
+Simple/Advanced 都导出 `Definition() sdk.Definition`，`go generate ./pluginregistry` 仍生成静态注册表，按路径确定排序、检查重复 ID，无运行时发现或解释器。源码变化重新构建/部署，启停和配置不重新编译。
 
-`ParseCommand` 支持 `/name`、Unicode 空白、单双引号和反斜杠转义，不作 shell 展开；未闭合引号不匹配。解析前通过 `CommandText` 移除已知机器人 mention；原始 Message 保留。其他前缀可使用 On 实现。
+旧 `plugins.Manifest/Definition/Extension/Base/Host/Call/State/Schema` 等仅为 deprecated 的 SDK 别名，ParseCommand/CommandText 为转发函数；旧源码仍能编译，JSON 字段、现有存储和管理路由保持。新代码使用 sdk，不依赖 plugins 实现。SDK 不引用 Registry/Manager，也未增加进程外适配层。
 
-State.Get 返回 JSON RawMessage，缺失 key 返回 nil；Set 接收合法 JSON。按插件/Bot 隔离，key 最长 128，单值 64KiB、每文件 1MiB，原子持久化。同实例事件串行；插件自行创建的 goroutine 应自行同步复合读改写，不提供跨 Bot/插件事务。权限为 state.read / state.write。
-
-ConfigSchema 支持 object、string、boolean、number、integer、array、properties、required、default、enum、minimum、maximum、items；未知键拒绝，非完整 JSON Schema。Configure 保存后重启生效。不要在插件配置放核心凭证。权限不会限制可信 Go 代码自行访问操作系统。
-
-## 管理与沙盒 API
-
-均使用原管理员认证和 CSRF 策略。
+以下 HTTP 接口仍使用原管理员认证与 CSRF 策略，行为保持：
 
 | 方法与路径 | 行为 |
 | --- | --- |
 | GET `/api/plugins`，`/api/plugins/{id}?bot_id=...` | 已编译目录、元数据、状态、指定 Bot 配置 |
-| PUT `/api/plugins/{id}` | `{bot_id,config}`；返回 restart_required |
-| POST `/api/plugins/{id}/toggle` | `{bot_id,enabled}`；无需信任开关或重新编译 |
-| POST `/api/plugins/{id}/restart` | `{bot_id}`；清理并创建新实例，保留状态 |
-| GET `/api/plugins/{id}/export` | 私有 JSON 配置/状态数据备份，不包含代码 |
-| POST `/api/plugins/data/restore` | 原始 JSON 备份；仅已编译插件且无已有数据，恢复后禁用 |
-| POST `/api/bots/{id}/sandbox/send` | `{type:"group"或"c2c",content,plugin_id?}`；返回 replies/results/errors/executions |
+| PUT `/api/plugins/{id}` | `{bot_id,config}`，返回 restart_required |
+| POST `/api/plugins/{id}/toggle` | `{bot_id,enabled}` |
+| POST `/api/plugins/{id}/restart` | `{bot_id}`，保留状态 |
+| GET `/api/plugins/{id}/export` | 私有 JSON 配置/状态备份 |
+| POST `/api/plugins/data/restore` | 空 scope 恢复，保持禁用 |
+| POST `/api/bots/{id}/sandbox/send` | `{type:"group"或"c2c",content,plugin_id?}`，返回 replies/results/errors/executions |
 
-旧 POST `/api/plugins` 和 DELETE `/api/plugins/{id}` 返回 410 并说明构建部署流程。旧 graph/custom-nodes/code2graph/graph2code 路由保持 404。旧脚本 ZIP 不能通过数据恢复接口执行。
-
-沙盒 Debug 总是使用新实例、临时状态和捕获回复，不需要真实 QQ Bot/连接。每次调试计数从头开始，不改生产状态。沙盒是功能测试工具，没有 OS 安全隔离；仅执行编译时审核过的 Go 插件。
+旧代码安装/卸载仍为 410，图相关路由仍为 404。沙盒为每次运行创建新实例、临时状态和捕获 Reply，不需要 QQ、不发送真实消息，但不限制可信插件自行访问系统资源。本轮不包含 `.so`、RPC/IPC、热加载或自动安装，也不承诺未来进程外协议可以无修改复用当前同步接口。

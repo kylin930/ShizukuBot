@@ -16,21 +16,41 @@ Windows 使用 `go build -o shizukubot.exe .`。从仓库根目录运行，保�
 
 ## Go 插件
 
-插件是普通 Go package。SDK 位于 `plugins/`，三个示例是：
+插件是普通 Go package，公共 API 在 `shizukubot/sdk`。最小 Ping 无需结构体、工厂或空生命周期：
+
+```go
+package hello
+
+import (
+    "context"
+    "shizukubot/sdk"
+)
+
+func Definition() sdk.Definition {
+    return sdk.CommandPlugin(
+        sdk.Meta{ID: "hello", Name: "Ping / Pong", Version: "1.0.0"},
+        "ping", func(ctx context.Context, c sdk.Call) error {
+            return c.Reply(ctx, "pong")
+        },
+    )
+}
+```
+
+监听消息可用 EventPlugin；多个指令/事件可用 Define。需要资源初始化、后台任务和清理时保留完整 Extension 接口，详见 [五分钟创建插件](docs/plugin-development.md)。Simple 与 Advanced 共用同一管理器。
 
 | 包 | 功能 |
 | --- | --- |
-| `plugins/hello` | `/ping` → `pong` |
-| `plugins/autoreply` | 按 Bot 配置关键词与回复，监听群/C2C 消息 |
-| `plugins/example` | `/count`，独立配置与持久计数 |
+| `plugins/hello` | CommandPlugin：`/ping` → `pong` |
+| `plugins/autoreply` | EventPlugin：按 Bot 配置关键词和回复 |
+| `plugins/example` | Advanced：生命周期、配置与持久计数 |
 
 另保留 `plugins/framework` 的 `/framework` 指令。默认不启用；在 WebUI 选择 Bot，保存配置后启用。配置、启停、重启和沙盒操作无需重新编译。
 
-新增插件在 `plugins/<name>/plugin.go` 导出 `Definition() plugins.Definition`，构造函数为每个 Bot 返回新对象。源码变更须审核、生成注册表、测试、构建并重新部署：
+新增插件在 `plugins/<name>/plugin.go` 导出 `Definition() sdk.Definition`。Simple 构造器自动创建新实例；Advanced 工厂也必须为每个 Bot 返回新对象。源码变更须审核、生成注册表、测试、构建并重新部署：
 
 ```sh
 go generate ./pluginregistry
-go test ./plugins/... ./pluginregistry
+go test ./sdk ./plugins/... ./pluginregistry
 go build -o shizukubot .
 ```
 
@@ -60,4 +80,5 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o shizukubot.exe .
 - [架构](docs/architecture-v2.md)
 - [插件开发](docs/plugin-development.md) / [Go SDK](docs/plugin-sdk.md)
 - [旧数据迁移与回滚](docs/legacy-migration.md)
-- [P1 Go 纠偏与实际验证结果](docs/v2-p1-go-correction.md)
+- [P1.2 SDK 开发体验与测试报告](docs/v2-p1-sdk-dx-report.md)
+- [P1 Go 纠偏历史报告](docs/v2-p1-go-correction.md)

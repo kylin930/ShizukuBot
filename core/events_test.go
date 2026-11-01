@@ -10,6 +10,8 @@ import (
 	"golang.org/x/oauth2"
 	"shizukubot/config"
 	"shizukubot/events"
+	"shizukubot/sdk"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -202,4 +204,23 @@ func TestAuthenticationDoesNotHoldBotStateLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	b.Stop()
+}
+
+// SDK conveniences delegate unsupported-source errors to the real core adapter.
+// No QQ client is initialized or called for these unsupported media requests.
+func TestSDKMediaHelpersRejectUnsupportedSources(t *testing.T) {
+	bot := testBot(t, "media")
+	for _, source := range []events.Source{events.Guild, events.Direct} {
+		e := sdk.Event{BotID: bot.ID, Source: source, ChannelID: "channel", GuildID: "guild"}
+		e.Reply = bot.reply(e)
+		call := sdk.Call{Event: e}
+		for _, send := range []func() error{
+			func() error { return call.ReplyImage(context.Background(), "https://example.com/image") },
+			func() error { return call.ReplyMarkdown(context.Background(), "**markdown**") },
+		} {
+			if err := send(); err == nil || !strings.Contains(err.Error(), "unsupported") {
+				t.Fatal(source, err)
+			}
+		}
+	}
 }

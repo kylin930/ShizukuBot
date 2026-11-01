@@ -25,7 +25,7 @@ apply 先复制并逐文件校验旧图、自定义节点和原 P1 脚本项目�
 
 全部图节点和连接必须能解释为完整规定路径。分支、事件数据端口和未解释节点不会被忽略。复杂图不会生成占位 Go 代码或声明迁移成功。
 
-成功生成 `plugins/migrated/<id>/plugin.go`、manifest.json（元数据清单）、migration.json（来源摘要）、README.md；源码导出 `Definition() plugins.Definition`，依赖新的 Go SDK，不包含旧图执行器。目录名可含短横线，源码统一采用合法 Go 包名。非法/保留 ID 使用稳定 legacy-hash 映射，需更新 Bot 的插件选择。
+成功生成 `plugins/migrated/<id>/plugin.go`、manifest.json（元数据清单）、migration.json（来源摘要）、README.md；源码导出 `Definition() sdk.Definition`，依赖新的 Go SDK，不包含旧图执行器。目录名可含短横线，源码统一采用合法 Go 包名。非法/保留 ID 使用稳定 legacy-hash 映射，需更新 Bot 的插件选择。
 
 生成只表示源码转换完成，不代表编译、部署、启用或 QQ 联调完成。检查备份和源码，确认 ID/配置/状态兼容后执行：
 
