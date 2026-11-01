@@ -5,7 +5,9 @@ import (
 	"strconv"
 	"strings"
 
-	"shizukubot/plugin"
+	"context"
+	"shizukubot/events"
+	"sync"
 )
 
 // CommandTemplates 内置指令的回复模板（全局一份，由 main 注入，配置页可热更新）
@@ -17,13 +19,22 @@ type CommandTemplates struct {
 
 // GlobalCommandTemplates 全局内置指令模板，仿 GlobalLogManager 模式。
 // 由 main.go 在加载配置后注入，api/config.go 在 UpdateConfig 时同步更新。
-var GlobalCommandTemplates *CommandTemplates
+var templateMu sync.RWMutex
+var globalCommandTemplates *CommandTemplates
+
+func SetCommandTemplates(t *CommandTemplates) {
+	templateMu.Lock()
+	defer templateMu.Unlock()
+	globalCommandTemplates = t
+}
 
 // handleBuiltinCommand 检查并处理内置指令（/help、/status、#shizuku）。
 // 命中则回复并返回 true（调用方应跳过插件图执行）；未命中返回 false。
 // 匹配规则与 event/on_command 一致：按 CommandPrefix 切分，首词精确匹配指令名。
-func (b *Bot) handleBuiltinCommand(ctx *plugin.EventContext) bool {
-	msg := strings.TrimSpace(ctx.Message)
+func (b *Bot) HandleBuiltinCommand(ctx context.Context, ev events.Event) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	msg := strings.TrimSpace(ev.Message)
 	if msg == "" {
 		return false
 	}
@@ -37,7 +48,7 @@ func (b *Bot) handleBuiltinCommand(ctx *plugin.EventContext) bool {
 	if strings.HasPrefix(msg, "#") {
 		parts := strings.Fields(msg)
 		if len(parts) > 0 && parts[0] == "#shizuku" {
-			b.replyBuiltin(ctx, b.renderShizuku())
+			b.replyBuiltin(ctx, ev, b.renderShizuku())
 			return true
 		}
 	}
@@ -50,10 +61,10 @@ func (b *Bot) handleBuiltinCommand(ctx *plugin.EventContext) bool {
 		}
 		switch parts[0] {
 		case "help":
-			b.replyBuiltin(ctx, b.renderHelp())
+			b.replyBuiltin(ctx, ev, b.renderHelp())
 			return true
 		case "status":
-			b.replyBuiltin(ctx, b.renderStatus())
+			b.replyBuiltin(ctx, ev, b.renderStatus())
 			return true
 		}
 	}
@@ -62,14 +73,11 @@ func (b *Bot) handleBuiltinCommand(ctx *plugin.EventContext) bool {
 }
 
 // replyBuiltin 按消息来源（群/私聊）选择回复通道
-func (b *Bot) replyBuiltin(ctx *plugin.EventContext, content string) {
-	if content == "" {
-		return
-	}
-	if ctx.GroupID != "" && ctx.ReplyToGroup != nil {
-		_ = ctx.ReplyToGroup(content)
-	} else if ctx.UserID != "" && ctx.ReplyToUser != nil {
-		_ = ctx.ReplyToUser(content)
+func (b *Bot) replyBuiltin(ctx context.Context, ev events.Event, content string) {
+	if ev.Reply != nil && content != "" {
+		if err := ev.Reply(ctx, events.Reply{Kind: "text", Text: content}); err != nil {
+			b.logError("builtin reply failed")
+		}
 	}
 }
 
@@ -77,7 +85,7 @@ func (b *Bot) replyBuiltin(ctx *plugin.EventContext, content string) {
 func (b *Bot) renderHelp() string {
 	tmpl := defaultIfEmpty(currentTemplates().Help, "📋 可用指令列表：\n{指令列表}")
 	vars := map[string]interface{}{
-		"指令列表": b.collectCommandList(),
+		"指令列表":  b.collectCommandList(),
 		"bot名称": b.Name,
 	}
 	return renderTemplate(tmpl, vars)
@@ -85,12 +93,13 @@ func (b *Bot) renderHelp() string {
 
 // renderStatus 渲染 /status 回复
 func (b *Bot) renderStatus() string {
+	stats := b.Stats.Snapshot()
 	tmpl := defaultIfEmpty(currentTemplates().Status, "🤖 {bot名称} 运行中")
 	vars := map[string]interface{}{
-		"bot名称":   b.Name,
-		"接收消息数": strconv.FormatInt(b.Stats.ReceivedMessages, 10),
-		"发送消息数": strconv.FormatInt(b.Stats.SentMessages, 10),
-		"CPU占用":  CoreCPUPercent(),
+		"bot名称": b.Name,
+		"接收消息数": strconv.FormatInt(stats.ReceivedMessages, 10),
+		"发送消息数": strconv.FormatInt(stats.SentMessages, 10),
+		"CPU占用": CoreCPUPercent(),
 		"内存占用":  CoreProcMemRSS(),
 	}
 	return renderTemplate(tmpl, vars)
@@ -101,10 +110,10 @@ func (b *Bot) renderShizuku() string {
 	tmpl := defaultIfEmpty(currentTemplates().Shizuku, "🌸 ShizukuBot 框架信息\n版本：v{core版本}")
 	vars := map[string]interface{}{
 		"core版本": CoreVersion,
-		"运行时间":  CoreUptime(),
-		"操作系统":  CoreOS(),
-		"go版本":  GoVersion(),
-		"bot名称": b.Name,
+		"运行时间":   CoreUptime(),
+		"操作系统":   CoreOS(),
+		"go版本":   GoVersion(),
+		"bot名称":  b.Name,
 	}
 	return renderTemplate(tmpl, vars)
 }
@@ -113,16 +122,18 @@ func (b *Bot) renderShizuku() string {
 func (b *Bot) collectCommandList() string {
 	// 内置指令始终列入，方便用户看到
 	all := []string{"/help", "/status", "#shizuku"}
-	if b.Engine != nil {
-		all = append(all, b.Engine.GetCommandList(b.PluginIDs, b.ID)...)
+	if b.Commands != nil {
+		all = append(all, b.Commands(b.PluginIDs, b.ID)...)
 	}
 	return strings.Join(all, "\n")
 }
 
 // currentTemplates 安全获取全局模板（未注入时返回零值）
 func currentTemplates() CommandTemplates {
-	if GlobalCommandTemplates != nil {
-		return *GlobalCommandTemplates
+	templateMu.RLock()
+	defer templateMu.RUnlock()
+	if globalCommandTemplates != nil {
+		return *globalCommandTemplates
 	}
 	return CommandTemplates{}
 }

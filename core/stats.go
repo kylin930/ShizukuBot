@@ -33,12 +33,12 @@ type Stats struct {
 }
 
 type SlidingWindow struct {
-	buckets     []int64
-	windowSize  int
-	bucketSize  time.Duration
+	buckets      []int64
+	windowSize   int
+	bucketSize   time.Duration
 	currentIndex int
-	total       int64
-	mu          sync.RWMutex
+	total        int64
+	mu           sync.RWMutex
 }
 
 func NewSlidingWindow(windowSize int, bucketSize time.Duration) *SlidingWindow {
@@ -54,7 +54,7 @@ func (w *SlidingWindow) Add(count int64) {
 	defer w.mu.Unlock()
 
 	now := time.Now()
-	expectedIndex := int(now.Unix() / int64(w.bucketSize.Seconds())) % w.windowSize
+	expectedIndex := int(now.Unix()/int64(w.bucketSize.Seconds())) % w.windowSize
 
 	if expectedIndex != w.currentIndex {
 		steps := (expectedIndex - w.currentIndex + w.windowSize) % w.windowSize
@@ -180,4 +180,22 @@ func (s *Stats) ResetDAU() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.TodayDAU = 0
+}
+
+// Snapshot returns independent counters and hourly values under the statistics lock.
+func (s *Stats) Snapshot() *Stats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	v := NewStats()
+	v.UserCount = s.UserCount
+	v.GroupCount = s.GroupCount
+	v.TodayDAU = s.TodayDAU
+	v.QPS = s.qpsWindow.GetQPS()
+	v.SentMessages = s.SentMessages
+	v.ReceivedMessages = s.ReceivedMessages
+	for k, h := range s.HourlyStats {
+		copy := *h
+		v.HourlyStats[k] = &copy
+	}
+	return v
 }

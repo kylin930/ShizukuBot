@@ -8,10 +8,11 @@ import (
 )
 
 type WebUIConfig struct {
-	Enabled  bool   `json:"enabled"`
-	Port     int    `json:"port"`
-	Password string `json:"password"`
-	Host     string `json:"host"`
+	Enabled       bool   `json:"enabled"`
+	Port          int    `json:"port"`
+	Password      string `json:"password"`
+	Host          string `json:"host"`
+	SecureCookies bool   `json:"secure_cookies"`
 }
 
 type BotConfig struct {
@@ -35,9 +36,9 @@ type BuiltinCommandsConfig struct {
 }
 
 type Config struct {
-	WebUI           WebUIConfig         `json:"webui"`
-	Bots            []BotConfig         `json:"bots"`
-	MarketAPI       string              `json:"market_api"`
+	WebUI           WebUIConfig           `json:"webui"`
+	Bots            []BotConfig           `json:"bots"`
+	MarketAPI       string                `json:"market_api"`
 	BuiltinCommands BuiltinCommandsConfig `json:"builtin_commands"`
 }
 
@@ -110,11 +111,11 @@ func SaveConfig(filePath string, config *Config) error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	if err := os.WriteFile(filePath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
-	return nil
+	return os.Chmod(filePath, 0600)
 }
 
 func createDefaultConfig() *Config {
@@ -126,12 +127,12 @@ func createDefaultConfig() *Config {
 		},
 		Bots: []BotConfig{
 			{
-				ID:         "bot1",
-				AppID:      "",
-				AppSecret:  "",
-				Name:       "ShizukuBot",
-				Enabled:    false,
-				Mode:       "websocket",
+				ID:        "bot1",
+				AppID:     "",
+				AppSecret: "",
+				Name:      "ShizukuBot",
+				Enabled:   false,
+				Mode:      "websocket",
 			},
 		},
 		MarketAPI:       "https://api.nekopara.us/market/api",
@@ -141,7 +142,7 @@ func createDefaultConfig() *Config {
 
 func generateRandomPassword() string {
 	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-	b := make([]byte, 8)
+	b := make([]byte, 32)
 	rand.Read(b)
 	for i := range b {
 		b[i] = chars[int(b[i])%len(chars)]

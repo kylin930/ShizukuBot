@@ -22,7 +22,7 @@ func JSONResponse(w http.ResponseWriter, code int, message string, data interfac
 	}
 
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "operation failed", http.StatusInternalServerError)
 	}
 }
 

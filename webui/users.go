@@ -6,16 +6,17 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"golang.org/x/crypto/bcrypt"
 )
 
 type User struct {
-	Username       string `json:"username"`
-	PasswordHash   string `json:"password_hash"`
-	IsAdmin        bool   `json:"is_admin"`
-	CreatedAt      string `json:"created_at"`
+	Username     string `json:"username"`
+	PasswordHash string `json:"password_hash"`
+	IsAdmin      bool   `json:"is_admin"`
+	CreatedAt    string `json:"created_at"`
 }
 
 type UserStore struct {
@@ -51,12 +52,11 @@ func InitUserStore(filePath string) error {
 		if err := store.save(); err != nil {
 			return err
 		}
-		println("========================================")
-		println("   Default Admin Account Created")
-		println("========================================")
-		println("   Username: admin")
-		println("   Password: " + password)
-		println("========================================")
+		// Bootstrap credential is local-only and never goes to logs.
+		if err := os.WriteFile(filepath.Join(filepath.Dir(filePath), ".admin-initial-password"), []byte(password+"\n"), 0600); err != nil {
+			return err
+		}
+
 	}
 
 	userStore = store
@@ -91,7 +91,8 @@ func (s *UserStore) load() error {
 func (s *UserStore) save() error {
 	users := make([]*User, 0, len(s.users))
 	for _, u := range s.users {
-		users = append(users, u)
+		copy := *u
+		users = append(users, &copy)
 	}
 
 	data, err := json.MarshalIndent(users, "", "  ")
@@ -99,7 +100,10 @@ func (s *UserStore) save() error {
 		return err
 	}
 
-	return os.WriteFile(s.filePath, data, 0644)
+	if err := os.WriteFile(s.filePath, data, 0600); err != nil {
+		return err
+	}
+	return os.Chmod(s.filePath, 0600)
 }
 
 func (s *UserStore) Authenticate(username, password string) (*User, bool) {
@@ -116,7 +120,8 @@ func (s *UserStore) Authenticate(username, password string) (*User, bool) {
 		return nil, false
 	}
 
-	return user, true
+	copy := *user
+	return &copy, true
 }
 
 func (s *UserStore) GetAllUsers() []*User {
@@ -125,7 +130,8 @@ func (s *UserStore) GetAllUsers() []*User {
 
 	users := make([]*User, 0, len(s.users))
 	for _, u := range s.users {
-		users = append(users, u)
+		copy := *u
+		users = append(users, &copy)
 	}
 	return users
 }
@@ -138,7 +144,8 @@ func (s *UserStore) GetUser(username string) (*User, bool) {
 	if !ok {
 		return nil, false
 	}
-	return user, true
+	copy := *user
+	return &copy, true
 }
 
 func (s *UserStore) CreateUser(username, password string, isAdmin bool) error {

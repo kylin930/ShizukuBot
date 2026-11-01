@@ -5,19 +5,22 @@ import (
 	"sync"
 	"time"
 
-	"shizukubot/plugin"
+	"shizukubot/events"
 )
 
 type BotManager struct {
-	bots     map[string]*Bot
-	mu       sync.RWMutex
-	logMgr   *LogManager
+	bots       map[string]*Bot
+	mu         sync.RWMutex
+	logMgr     *LogManager
+	dispatcher *events.Dispatcher
+	commands   func([]string, string) []string
 }
 
 func NewBotManager() *BotManager {
 	return &BotManager{
-		bots:    make(map[string]*Bot),
-		logMgr:  NewLogManager(1000, LogLevelDebug),
+		bots:       make(map[string]*Bot),
+		logMgr:     NewLogManager(1000, LogLevelDebug),
+		dispatcher: events.NewDispatcher(events.NewBus()),
 	}
 }
 
@@ -38,6 +41,8 @@ func (bm *BotManager) AddBot(bot *Bot) error {
 	}
 
 	bot.SetLogManager(bm.logMgr)
+	bot.Dispatcher = bm.dispatcher
+	bot.Commands = bm.commands
 	bm.bots[bot.ID] = bot
 
 	bm.logMgr.Info(bot.ID, fmt.Sprintf("bot %s added", bot.ID))
@@ -45,18 +50,19 @@ func (bm *BotManager) AddBot(bot *Bot) error {
 }
 
 func (bm *BotManager) RemoveBot(id string) error {
+	// Remove the routing entry before joining workers; never hold the manager lock
+	// while a worker may call GetBot from a bus subscription.
 	bm.mu.Lock()
-	defer bm.mu.Unlock()
-
 	bot, exists := bm.bots[id]
+	if exists {
+		delete(bm.bots, id)
+	}
+	bm.mu.Unlock()
 	if !exists {
 		return fmt.Errorf("bot %s not found", id)
 	}
-
 	bot.Stop()
-	delete(bm.bots, id)
-
-	bm.logMgr.Info(id, fmt.Sprintf("bot %s removed", id))
+	bm.logMgr.Info(id, "bot removed")
 	return nil
 }
 
@@ -116,6 +122,9 @@ func (bm *BotManager) StartAll() error {
 	errChan := make(chan error, len(bots))
 
 	for _, bot := range bots {
+		if !bot.IsEnabled() {
+			continue
+		}
 		wg.Add(1)
 		go func(b *Bot) {
 			defer wg.Done()
@@ -159,11 +168,18 @@ func (bm *BotManager) StopAll() {
 	bm.logMgr.Info("", "all bots stopped")
 }
 
-func (bm *BotManager) SetEngine(engine *plugin.ExecutionEngine) {
+// Events returns the shared bot-scoped event bus.
+func (bm *BotManager) Events() *events.Bus { return bm.dispatcher.Bus }
+
+// SetCommandProvider connects optional plugin command discovery without graph dependencies.
+func (bm *BotManager) SetCommandProvider(provider func([]string, string) []string) {
 	bm.mu.Lock()
 	defer bm.mu.Unlock()
+	bm.commands = provider
 	for _, bot := range bm.bots {
-		bot.Engine = engine
+		bot.mu.Lock()
+		bot.Commands = provider
+		bot.mu.Unlock()
 	}
 }
 
@@ -176,7 +192,9 @@ func (bm *BotManager) SetBotPlugins(botID string, pluginIDs []string) error {
 	if !exists {
 		return fmt.Errorf("bot %s not found", botID)
 	}
-	bot.PluginIDs = pluginIDs
+	bot.mu.Lock()
+	defer bot.mu.Unlock()
+	bot.PluginIDs = append([]string(nil), pluginIDs...)
 	return nil
 }
 
@@ -189,7 +207,9 @@ func (bm *BotManager) GetBotPlugins(botID string) ([]string, error) {
 	if !exists {
 		return nil, fmt.Errorf("bot %s not found", botID)
 	}
-	return bot.PluginIDs, nil
+	bot.mu.Lock()
+	defer bot.mu.Unlock()
+	return append([]string(nil), bot.PluginIDs...), nil
 }
 
 // SetBotConfig 设置bot的独立配置
@@ -201,11 +221,13 @@ func (bm *BotManager) SetBotConfig(botID string, pluginIDs []string, commandPref
 	if !exists {
 		return fmt.Errorf("bot %s not found", botID)
 	}
-	bot.PluginIDs = pluginIDs
+	bot.mu.Lock()
+	defer bot.mu.Unlock()
+	bot.PluginIDs = append([]string(nil), pluginIDs...)
 	if commandPrefix != "" {
 		bot.CommandPrefix = commandPrefix
 	}
-	bot.AdminUsers = adminUsers
+	bot.AdminUsers = append([]string(nil), adminUsers...)
 	return nil
 }
 
@@ -218,7 +240,9 @@ func (bm *BotManager) GetBotConfig(botID string) (pluginIDs []string, commandPre
 	if !exists {
 		return nil, "", nil, fmt.Errorf("bot %s not found", botID)
 	}
-	return bot.PluginIDs, bot.CommandPrefix, bot.AdminUsers, nil
+	bot.mu.Lock()
+	defer bot.mu.Unlock()
+	return append([]string(nil), bot.PluginIDs...), bot.CommandPrefix, append([]string(nil), bot.AdminUsers...), nil
 }
 
 func (bm *BotManager) GetTotalStats() *Stats {
@@ -227,13 +251,14 @@ func (bm *BotManager) GetTotalStats() *Stats {
 
 	total := NewStats()
 	for _, bot := range bm.bots {
-		total.UserCount += bot.Stats.UserCount
-		total.GroupCount += bot.Stats.GroupCount
-		total.TodayDAU += bot.Stats.TodayDAU
-		total.SentMessages += bot.Stats.SentMessages
-		total.ReceivedMessages += bot.Stats.ReceivedMessages
+		stats := bot.Stats.Snapshot()
+		total.UserCount += stats.UserCount
+		total.GroupCount += stats.GroupCount
+		total.TodayDAU += stats.TodayDAU
+		total.SentMessages += stats.SentMessages
+		total.ReceivedMessages += stats.ReceivedMessages
 
-		for hour, stat := range bot.Stats.HourlyStats {
+		for hour, stat := range stats.HourlyStats {
 			if _, ok := total.HourlyStats[hour]; !ok {
 				total.HourlyStats[hour] = &HourlyStat{Hour: hour}
 			}
@@ -251,7 +276,8 @@ func (bm *BotManager) GetTodayHourlyStats() []*HourlyStat {
 
 	total := NewStats()
 	for _, bot := range bm.bots {
-		for hour, stat := range bot.Stats.HourlyStats {
+		stats := bot.Stats.Snapshot()
+		for hour, stat := range stats.HourlyStats {
 			if _, ok := total.HourlyStats[hour]; !ok {
 				total.HourlyStats[hour] = &HourlyStat{Hour: hour}
 			}
@@ -272,4 +298,21 @@ func (bm *BotManager) GetTodayHourlyStats() []*HourlyStat {
 	}
 
 	return result
+}
+
+// ReplaceBot stops the old instance before installing new credentials and options.
+func (bm *BotManager) ReplaceBot(bot *Bot) error {
+	old, ok := bm.GetBot(bot.ID)
+	if !ok {
+		return fmt.Errorf("bot not found")
+	}
+	old.Stop()
+	bm.mu.Lock()
+	defer bm.mu.Unlock()
+	bot.SetLogManager(bm.logMgr)
+	bot.Dispatcher = bm.dispatcher
+	bot.Commands = bm.commands
+	bot.Stats = old.Stats
+	bm.bots[bot.ID] = bot
+	return nil
 }

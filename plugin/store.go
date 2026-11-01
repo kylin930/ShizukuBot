@@ -5,25 +5,27 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"sync"
 )
 
 type Plugin struct {
-	ID           string           `json:"id"`
-	Name         string           `json:"name"`
-	Description  string           `json:"description"`
-	Enabled      bool             `json:"enabled"`
-	BotID        string           `json:"bot_id"`
-	Graph        json.RawMessage  `json:"graph"`
-	CustomNodes  json.RawMessage  `json:"custom_nodes,omitempty"`
-	CreatedAt    int64            `json:"created_at"`
-	UpdatedAt    int64            `json:"updated_at"`
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Enabled     bool            `json:"enabled"`
+	BotID       string          `json:"bot_id"`
+	Graph       json.RawMessage `json:"graph"`
+	CustomNodes json.RawMessage `json:"custom_nodes,omitempty"`
+	CreatedAt   int64           `json:"created_at"`
+	UpdatedAt   int64           `json:"updated_at"`
 }
 
 type PluginStore struct {
-	Plugins     map[string]*Plugin
-	mu         sync.RWMutex
-	dataDir    string
+	Plugins map[string]*Plugin
+	mu      sync.RWMutex
+	dataDir string
 }
 
 func NewPluginStore(dataDir string) (*PluginStore, error) {
@@ -43,7 +45,7 @@ func NewPluginStore(dataDir string) (*PluginStore, error) {
 func (s *PluginStore) loadAll() error {
 	entries, err := os.ReadDir(s.dataDir)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	for _, entry := range entries {
@@ -54,7 +56,12 @@ func (s *PluginStore) loadAll() error {
 			continue
 		}
 
-		data, err := os.ReadFile(filepath.Join(s.dataDir, entry.Name()))
+		root, err := os.OpenRoot(s.dataDir)
+		if err != nil {
+			return err
+		}
+		data, err := root.ReadFile(entry.Name())
+		root.Close()
 		if err != nil {
 			continue
 		}
@@ -63,7 +70,10 @@ func (s *PluginStore) loadAll() error {
 		if err := json.Unmarshal(data, &p); err != nil {
 			continue
 		}
-		s.Plugins[p.ID] = &p
+		if !ValidID(p.ID) {
+			continue
+		}
+		s.Plugins[p.ID] = clonePlugin(&p)
 	}
 	return nil
 }
@@ -74,8 +84,9 @@ func (s *PluginStore) List() []*Plugin {
 
 	result := make([]*Plugin, 0, len(s.Plugins))
 	for _, p := range s.Plugins {
-		result = append(result, p)
+		result = append(result, clonePlugin(p))
 	}
+	sort.SliceStable(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result
 }
 
@@ -83,37 +94,52 @@ func (s *PluginStore) Get(id string) (*Plugin, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	p, ok := s.Plugins[id]
-	return p, ok
+	return clonePlugin(p), ok
 }
 
 func (s *PluginStore) Save(p *Plugin) error {
+	if p == nil || !ValidID(p.ID) {
+		return fmt.Errorf("invalid plugin id")
+	}
+	if !json.Valid(p.Graph) {
+		return fmt.Errorf("invalid plugin graph")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	s.Plugins[p.ID] = p
 
 	data, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal plugin: %w", err)
 	}
 
-	filePath := filepath.Join(s.dataDir, p.ID+".json")
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	root, err := os.OpenRoot(s.dataDir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	if err := root.WriteFile(p.ID+".json", data, 0600); err != nil {
 		return fmt.Errorf("failed to write plugin file: %w", err)
 	}
+	s.Plugins[p.ID] = clonePlugin(p)
 	return nil
 }
 
 func (s *PluginStore) Delete(id string) error {
+	if !ValidID(id) {
+		return fmt.Errorf("invalid plugin id")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	delete(s.Plugins, id)
-
-	filePath := filepath.Join(s.dataDir, id+".json")
-	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+	root, err := os.OpenRoot(s.dataDir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	if err := root.Remove(id + ".json"); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to delete plugin file: %w", err)
 	}
+	delete(s.Plugins, id)
 	return nil
 }
 
@@ -124,9 +150,10 @@ func (s *PluginStore) GetEnabledPlugins(botID string) []*Plugin {
 	result := make([]*Plugin, 0)
 	for _, p := range s.Plugins {
 		if p.Enabled && (p.BotID == "" || p.BotID == botID || p.BotID == "*") {
-			result = append(result, p)
+			result = append(result, clonePlugin(p))
 		}
 	}
+	sort.SliceStable(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result
 }
 
@@ -138,9 +165,10 @@ func (s *PluginStore) GetPluginsByIDs(ids []string) []*Plugin {
 	result := make([]*Plugin, 0, len(ids))
 	for _, id := range ids {
 		if p, ok := s.Plugins[id]; ok {
-			result = append(result, p)
+			result = append(result, clonePlugin(p))
 		}
 	}
+	sort.SliceStable(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result
 }
 
@@ -152,8 +180,23 @@ func (s *PluginStore) GetEnabledPluginsByIDs(ids []string) []*Plugin {
 	result := make([]*Plugin, 0, len(ids))
 	for _, id := range ids {
 		if p, ok := s.Plugins[id]; ok && p.Enabled {
-			result = append(result, p)
+			result = append(result, clonePlugin(p))
 		}
 	}
+	sort.SliceStable(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result
+}
+
+var pluginIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}$`)
+
+// ValidID excludes paths and ambiguous special filenames from plugin identities.
+func ValidID(id string) bool { return pluginIDPattern.MatchString(id) && id != "." && id != ".." }
+func clonePlugin(p *Plugin) *Plugin {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	v.Graph = append(json.RawMessage(nil), p.Graph...)
+	v.CustomNodes = append(json.RawMessage(nil), p.CustomNodes...)
+	return &v
 }

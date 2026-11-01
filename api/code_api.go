@@ -3,8 +3,6 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"os"
-	"path/filepath"
 
 	"shizukubot/plugin"
 )
@@ -36,7 +34,7 @@ type GraphToCodeRequest struct {
 func (r *Router) ScanCode(w http.ResponseWriter, req *http.Request) {
 	var body ScanCodeRequest
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-		ErrorResponse(w, 400, "invalid request body: "+err.Error())
+		ErrorResponse(w, 400, "invalid request body")
 		return
 	}
 
@@ -51,25 +49,20 @@ func (r *Router) ScanCode(w http.ResponseWriter, req *http.Request) {
 			ErrorResponse(w, 400, "path is required for source_type=file")
 			return
 		}
-		result, err = plugin.ScanGoSource(body.Path)
+		result, err = plugin.ScanDataSource(body.Path, false)
 	case "directory":
 		if body.Path == "" {
 			ErrorResponse(w, 400, "path is required for source_type=directory")
 			return
 		}
-		absPath, _ := filepath.Abs(body.Path)
-		if _, statErr := os.Stat(absPath); statErr != nil {
-			ErrorResponse(w, 400, "directory not found: "+absPath)
-			return
-		}
-		result, err = plugin.ScanGoDirectory(absPath)
+		result, err = plugin.ScanDataSource(body.Path, true)
 	default:
 		ErrorResponse(w, 400, "unknown source_type: "+body.SourceType)
 		return
 	}
 
 	if err != nil {
-		ErrorResponse(w, 500, "scan failed: "+err.Error())
+		ErrorResponse(w, 500, "scan failed")
 		return
 	}
 
@@ -80,7 +73,7 @@ func (r *Router) ScanCode(w http.ResponseWriter, req *http.Request) {
 func (r *Router) CodeToGraph(w http.ResponseWriter, req *http.Request) {
 	var body CodeToGraphRequest
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-		ErrorResponse(w, 400, "invalid request body: "+err.Error())
+		ErrorResponse(w, 400, "invalid request body")
 		return
 	}
 
@@ -95,26 +88,26 @@ func (r *Router) CodeToGraph(w http.ResponseWriter, req *http.Request) {
 			ErrorResponse(w, 400, "path is required")
 			return
 		}
-		scanResult, err = plugin.ScanGoSource(body.Path)
+		scanResult, err = plugin.ScanDataSource(body.Path, false)
 	case "directory":
 		if body.Path == "" {
 			ErrorResponse(w, 400, "path is required")
 			return
 		}
-		scanResult, err = plugin.ScanGoDirectory(body.Path)
+		scanResult, err = plugin.ScanDataSource(body.Path, true)
 	default:
 		ErrorResponse(w, 400, "unknown source_type: "+body.SourceType)
 		return
 	}
 
 	if err != nil {
-		ErrorResponse(w, 500, "scan failed: "+err.Error())
+		ErrorResponse(w, 500, "scan failed")
 		return
 	}
 
 	pluginJSON, err := scanResult.ToPluginJSON()
 	if err != nil {
-		ErrorResponse(w, 500, "generate plugin failed: "+err.Error())
+		ErrorResponse(w, 500, "generate plugin failed")
 		return
 	}
 
@@ -125,7 +118,7 @@ func (r *Router) CodeToGraph(w http.ResponseWriter, req *http.Request) {
 func (r *Router) GraphToCode(w http.ResponseWriter, req *http.Request) {
 	var body GraphToCodeRequest
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-		ErrorResponse(w, 400, "invalid request body: "+err.Error())
+		ErrorResponse(w, 400, "invalid request body")
 		return
 	}
 
@@ -136,7 +129,7 @@ func (r *Router) GraphToCode(w http.ResponseWriter, req *http.Request) {
 
 	code, err := plugin.GraphToCode(body.Plugin)
 	if err != nil {
-		ErrorResponse(w, 500, "generate code failed: "+err.Error())
+		ErrorResponse(w, 500, "generate code failed")
 		return
 	}
 

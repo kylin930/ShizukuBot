@@ -1716,8 +1716,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // 登出
     const logoutBtn = document.getElementById('logout-btn');
     if (logoutBtn) {
-        logoutBtn.addEventListener('click', () => {
-            window.location.href = '/logout';
+        logoutBtn.addEventListener('click', async () => {
+            await fetch('/logout', {method:'POST',headers:{'Content-Type':'application/json'}}); window.location.href = '/login';
         });
     }
 

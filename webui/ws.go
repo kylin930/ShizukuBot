@@ -13,7 +13,7 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		return true
+		return SameOrigin(r)
 	},
 }
 
@@ -26,11 +26,31 @@ type LogMessage struct {
 
 func LogsWSHandler(logManager *core.LogManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		u, ok := GetCurrentUser(r)
+		if !ok || !u.IsAdmin {
+			http.Error(w, "administrator required", 403)
+			return
+		}
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		conn.SetReadLimit(1024)
+		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		conn.SetPongHandler(func(string) error { return conn.SetReadDeadline(time.Now().Add(60 * time.Second)) })
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			for {
+				if _, _, err := conn.ReadMessage(); err != nil {
+					return
+				}
+			}
+		}()
+
+		defer func() { conn.Close(); <-done }()
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
 
 		logChan := logManager.Subscribe(100)
 		defer logManager.Unsubscribe(logChan)
@@ -44,10 +64,40 @@ func LogsWSHandler(logManager *core.LogManager) http.HandlerFunc {
 				Message:   entry.Message,
 			}
 			data, _ := json.Marshal(msg)
-			conn.WriteMessage(websocket.TextMessage, data)
+			if err := func() error {
+				conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				return conn.WriteMessage(websocket.TextMessage, data)
+			}(); err != nil {
+				return
+			}
 		}
 
-		for entry := range logChan {
+		for {
+			var entry core.LogEntry
+			select {
+			case <-done:
+				return
+			case <-r.Context().Done():
+				return
+			case <-ticker.C:
+				u, ok := GetCurrentUser(r)
+				if !ok || !u.IsAdmin {
+					return
+				}
+				if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second)); err != nil {
+					return
+				}
+				continue
+			case e, ok := <-logChan:
+				if !ok {
+					return
+				}
+				entry = e
+			}
+			u, ok := GetCurrentUser(r)
+			if !ok || !u.IsAdmin {
+				return
+			}
 			msg := LogMessage{
 				Timestamp: entry.Timestamp.Format(time.RFC3339),
 				BotID:     entry.BotID,
@@ -58,7 +108,10 @@ func LogsWSHandler(logManager *core.LogManager) http.HandlerFunc {
 			if err != nil {
 				continue
 			}
-			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+			if err := func() error {
+				conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				return conn.WriteMessage(websocket.TextMessage, data)
+			}(); err != nil {
 				return
 			}
 		}

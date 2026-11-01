@@ -1,8 +1,11 @@
 package webui
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"sync"
 
 	"github.com/gorilla/sessions"
 )
@@ -12,13 +15,24 @@ const (
 	sessionUserKey = "username"
 )
 
+var storeMu sync.RWMutex
 var store *sessions.CookieStore
 
+func sessionStore() *sessions.CookieStore { storeMu.RLock(); defer storeMu.RUnlock(); return store }
+
+var forceSecureCookies bool
+
+// ConfigureCookies explicitly enables secure cookies behind a trusted HTTPS terminator.
+func ConfigureCookies(secure bool) { forceSecureCookies = secure }
+
 func InitSessionStore(secret string) {
+	storeMu.Lock()
+	defer storeMu.Unlock()
 	store = sessions.NewCookieStore([]byte(secret))
 	store.Options = &sessions.Options{
 		HttpOnly: true,
-		Secure:   false,
+		Secure:   forceSecureCookies,
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   86400,
 		Path:     "/",
 	}
@@ -66,18 +80,18 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, err := store.Get(r, sessionName)
+	session, err := sessionStore().Get(r, sessionName)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"code":    1,
-			"message": "服务器内部错误",
-		})
-		return
+		session, err = sessionStore().New(r, sessionName)
+		if err != nil {
+			http.Error(w, "session failure", 500)
+			return
+		}
 	}
 
+	session.Options.Secure = forceSecureCookies || r.TLS != nil
 	session.Values[sessionUserKey] = user.Username
+	session.Values["auth_tag"] = authTag(user)
 	if err := session.Save(r, w); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -100,39 +114,26 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func LogoutHandler(w http.ResponseWriter, r *http.Request) {
-	session, err := store.Get(r, sessionName)
+	session, err := sessionStore().Get(r, sessionName)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "session failure", http.StatusInternalServerError)
 		return
 	}
 
 	session.Values[sessionUserKey] = nil
 	session.Options.MaxAge = -1
 	if err := session.Save(r, w); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "session failure", http.StatusInternalServerError)
 		return
 	}
 
 	http.Redirect(w, r, "/login", http.StatusFound)
 }
 
-func IsAuthenticated(r *http.Request) bool {
-	session, err := store.Get(r, sessionName)
-	if err != nil {
-		return false
-	}
-
-	username, ok := session.Values[sessionUserKey].(string)
-	if !ok || username == "" {
-		return false
-	}
-
-	_, exists := userStore.GetUser(username)
-	return exists
-}
+func IsAuthenticated(r *http.Request) bool { _, ok := GetCurrentUser(r); return ok }
 
 func GetCurrentUser(r *http.Request) (*User, bool) {
-	session, err := store.Get(r, sessionName)
+	session, err := sessionStore().Get(r, sessionName)
 	if err != nil {
 		return nil, false
 	}
@@ -142,5 +143,16 @@ func GetCurrentUser(r *http.Request) (*User, bool) {
 		return nil, false
 	}
 
-	return userStore.GetUser(username)
+	u, exists := userStore.GetUser(username)
+	if !exists || session.Values["auth_tag"] != authTag(u) {
+		return nil, false
+	}
+	return u, true
+}
+
+// authTag invalidates old sessions after password changes without putting the
+// password hash itself into a readable signed cookie.
+func authTag(u *User) string {
+	digest := sha256.Sum256([]byte(u.PasswordHash))
+	return hex.EncodeToString(digest[:])
 }

@@ -18,7 +18,7 @@ type StatsResponse struct {
 func (r *Router) GetStats(w http.ResponseWriter, req *http.Request) {
 	stats := r.botManager.GetTotalStats()
 	hourly := r.botManager.GetTodayHourlyStats()
-	
+
 	result := map[string]interface{}{
 		"user_count":        stats.UserCount,
 		"group_count":       stats.GroupCount,
@@ -41,13 +41,14 @@ func (r *Router) GetBotStats(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	stats := bot.Stats.Snapshot()
 	result := StatsResponse{
-		UserCount:        bot.Stats.UserCount,
-		GroupCount:       bot.Stats.GroupCount,
-		TodayDAU:         bot.Stats.TodayDAU,
-		QPS:              bot.Stats.QPS,
-		SentMessages:     bot.Stats.SentMessages,
-		ReceivedMessages: bot.Stats.ReceivedMessages,
+		UserCount:        stats.UserCount,
+		GroupCount:       stats.GroupCount,
+		TodayDAU:         stats.TodayDAU,
+		QPS:              stats.QPS,
+		SentMessages:     stats.SentMessages,
+		ReceivedMessages: stats.ReceivedMessages,
 	}
 	SuccessResponse(w, result)
 }

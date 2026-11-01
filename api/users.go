@@ -79,7 +79,7 @@ func (r *Router) CreateUser(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"code":    1,
-			"message": err.Error(),
+			"message": "operation failed",
 		})
 		return
 	}
@@ -111,7 +111,7 @@ func (r *Router) DeleteUser(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"code":    1,
-			"message": err.Error(),
+			"message": "operation failed",
 		})
 		return
 	}
@@ -176,7 +176,7 @@ func (r *Router) ChangeUserPassword(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"code":    1,
-			"message": err.Error(),
+			"message": "operation failed",
 		})
 		return
 	}

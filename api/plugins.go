@@ -1,9 +1,10 @@
 package api
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -12,12 +13,12 @@ import (
 )
 
 type PluginExport struct {
-	ID           string           `json:"id"`
-	Name         string           `json:"name"`
-	Description  string           `json:"description"`
-	BotID        string           `json:"bot_id"`
-	Graph        json.RawMessage  `json:"graph"`
-	CustomNodes  json.RawMessage  `json:"custom_nodes,omitempty"`
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	BotID       string          `json:"bot_id"`
+	Graph       json.RawMessage `json:"graph"`
+	CustomNodes json.RawMessage `json:"custom_nodes,omitempty"`
 }
 
 type PluginInfo struct {
@@ -31,15 +32,15 @@ type PluginInfo struct {
 }
 
 type PluginDetail struct {
-	ID           string           `json:"id"`
-	Name         string           `json:"name"`
-	Description  string           `json:"description"`
-	Enabled      bool             `json:"enabled"`
-	BotID        string           `json:"bot_id"`
-	Graph        json.RawMessage  `json:"graph"`
-	CustomNodes  json.RawMessage  `json:"custom_nodes,omitempty"`
-	CreatedAt    int64            `json:"created_at"`
-	UpdatedAt    int64            `json:"updated_at"`
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Enabled     bool            `json:"enabled"`
+	BotID       string          `json:"bot_id"`
+	Graph       json.RawMessage `json:"graph"`
+	CustomNodes json.RawMessage `json:"custom_nodes,omitempty"`
+	CreatedAt   int64           `json:"created_at"`
+	UpdatedAt   int64           `json:"updated_at"`
 }
 
 func (r *Router) GetPlugins(w http.ResponseWriter, req *http.Request) {
@@ -85,11 +86,11 @@ func (r *Router) GetPlugin(w http.ResponseWriter, req *http.Request) {
 
 func (r *Router) CreatePlugin(w http.ResponseWriter, req *http.Request) {
 	var reqBody struct {
-		Name         string           `json:"name"`
-		Description  string           `json:"description"`
-		BotID        string           `json:"bot_id"`
-		Graph        json.RawMessage  `json:"graph"`
-		CustomNodes  json.RawMessage  `json:"custom_nodes"`
+		Name        string          `json:"name"`
+		Description string          `json:"description"`
+		BotID       string          `json:"bot_id"`
+		Graph       json.RawMessage `json:"graph"`
+		CustomNodes json.RawMessage `json:"custom_nodes"`
 	}
 
 	if err := json.NewDecoder(req.Body).Decode(&reqBody); err != nil {
@@ -107,18 +108,23 @@ func (r *Router) CreatePlugin(w http.ResponseWriter, req *http.Request) {
 	}
 
 	now := time.Now().Unix()
-	id := "plugin_" + strconv.FormatInt(now, 10)
+	var random [16]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		InternalErrorResponse(w, "id generation failed")
+		return
+	}
+	id := "plugin_" + hex.EncodeToString(random[:])
 
 	p := &plugin.Plugin{
-		ID:           id,
-		Name:         reqBody.Name,
-		Description:  reqBody.Description,
-		Enabled:      false,
-		BotID:        reqBody.BotID,
-		Graph:        reqBody.Graph,
-		CustomNodes:  reqBody.CustomNodes,
-		CreatedAt:    now,
-		UpdatedAt:    now,
+		ID:          id,
+		Name:        reqBody.Name,
+		Description: reqBody.Description,
+		Enabled:     false,
+		BotID:       reqBody.BotID,
+		Graph:       reqBody.Graph,
+		CustomNodes: reqBody.CustomNodes,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	if err := r.pluginStore.Save(p); err != nil {
@@ -151,12 +157,12 @@ func (r *Router) UpdatePlugin(w http.ResponseWriter, req *http.Request) {
 	}
 
 	var reqBody struct {
-		Name         string           `json:"name"`
-		Description  string           `json:"description"`
-		Enabled      bool             `json:"enabled"`
-		BotID        string           `json:"bot_id"`
-		Graph        json.RawMessage  `json:"graph"`
-		CustomNodes  json.RawMessage  `json:"custom_nodes"`
+		Name        string          `json:"name"`
+		Description string          `json:"description"`
+		Enabled     bool            `json:"enabled"`
+		BotID       string          `json:"bot_id"`
+		Graph       json.RawMessage `json:"graph"`
+		CustomNodes json.RawMessage `json:"custom_nodes"`
 	}
 
 	if err := json.NewDecoder(req.Body).Decode(&reqBody); err != nil {
@@ -206,7 +212,7 @@ func (r *Router) DeletePlugin(w http.ResponseWriter, req *http.Request) {
 	id := vars["id"]
 
 	if err := r.pluginStore.Delete(id); err != nil {
-		NotFoundResponse(w, err.Error())
+		BadRequestResponse(w, "invalid plugin operation")
 		return
 	}
 
@@ -284,12 +290,12 @@ func (r *Router) ExportPlugin(w http.ResponseWriter, req *http.Request) {
 	}
 
 	exportData := PluginExport{
-		ID:           p.ID,
-		Name:         p.Name,
-		Description:  p.Description,
-		BotID:        p.BotID,
-		Graph:        p.Graph,
-		CustomNodes:  p.CustomNodes,
+		ID:          p.ID,
+		Name:        p.Name,
+		Description: p.Description,
+		BotID:       p.BotID,
+		Graph:       p.Graph,
+		CustomNodes: p.CustomNodes,
 	}
 
 	data, err := json.MarshalIndent(exportData, "", "  ")
@@ -299,6 +305,6 @@ func (r *Router) ExportPlugin(w http.ResponseWriter, req *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Content-Disposition", "attachment; filename=\""+p.Name+"_"+p.ID+".json\"")
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+p.ID+".json\"")
 	w.Write(data)
 }

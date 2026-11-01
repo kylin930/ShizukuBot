@@ -30,7 +30,7 @@ func (r *Router) GetBots(w http.ResponseWriter, req *http.Request) {
 			ID:            bot.ID,
 			Name:          bot.Name,
 			AppID:         bot.AppID,
-			Enabled:       bot.Enabled,
+			Enabled:       bot.IsEnabled(),
 			Running:       bot.IsRunning(),
 			Mode:          bot.Mode,
 			Plugins:       bot.PluginIDs,
@@ -55,7 +55,7 @@ func (r *Router) GetBot(w http.ResponseWriter, req *http.Request) {
 		ID:            bot.ID,
 		Name:          bot.Name,
 		AppID:         bot.AppID,
-		Enabled:       bot.Enabled,
+		Enabled:       bot.IsEnabled(),
 		Running:       bot.IsRunning(),
 		Mode:          bot.Mode,
 		Plugins:       bot.PluginIDs,
@@ -115,7 +115,6 @@ func (r *Router) CreateBot(w http.ResponseWriter, req *http.Request) {
 		BadRequestResponse(w, err.Error())
 		return
 	}
-	bot.Engine = r.engine
 
 	r.config.Bots = append(r.config.Bots, cfg)
 	if err := config.SaveConfig(r.configPath, r.config); err != nil {
@@ -127,7 +126,7 @@ func (r *Router) CreateBot(w http.ResponseWriter, req *http.Request) {
 		ID:            bot.ID,
 		Name:          bot.Name,
 		AppID:         bot.AppID,
-		Enabled:       bot.Enabled,
+		Enabled:       bot.IsEnabled(),
 		Running:       bot.IsRunning(),
 		Mode:          bot.Mode,
 		Plugins:       bot.PluginIDs,
@@ -163,73 +162,75 @@ func (r *Router) UpdateBot(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if reqBody.Name != "" {
-		bot.Name = reqBody.Name
-	}
-	if reqBody.AppID != "" {
-		bot.AppID = reqBody.AppID
-	}
-	if reqBody.AppSecret != "" {
-		bot.AppSecret = reqBody.AppSecret
-	}
-	if reqBody.Enabled != nil {
-		bot.Enabled = *reqBody.Enabled
-	}
-	if reqBody.Mode != "" {
-		bot.Mode = reqBody.Mode
-	}
-	// Plugins 字段：nil 表示不修改，非nil（包括空切片）表示设置为该值
-	if reqBody.Plugins != nil {
-		bot.PluginIDs = reqBody.Plugins
-	}
-	if reqBody.CommandPrefix != "" {
-		bot.CommandPrefix = reqBody.CommandPrefix
-	}
-	// AdminUsers 字段：nil 表示不修改，非nil（包括空切片）表示设置为该值
-	if reqBody.AdminUsers != nil {
-		bot.AdminUsers = reqBody.AdminUsers
-	}
-
-	for i, cfg := range r.config.Bots {
+	var next config.BotConfig
+	for _, cfg := range r.config.Bots {
 		if cfg.ID == id {
-			if reqBody.Name != "" {
-				r.config.Bots[i].Name = reqBody.Name
-			}
-			if reqBody.AppID != "" {
-				r.config.Bots[i].AppID = reqBody.AppID
-			}
-			if reqBody.AppSecret != "" {
-				r.config.Bots[i].AppSecret = reqBody.AppSecret
-			}
-			if reqBody.Enabled != nil {
-				r.config.Bots[i].Enabled = *reqBody.Enabled
-			}
-			if reqBody.Mode != "" {
-				r.config.Bots[i].Mode = reqBody.Mode
-			}
-			if reqBody.Plugins != nil {
-				r.config.Bots[i].Plugins = reqBody.Plugins
-			}
-			if reqBody.CommandPrefix != "" {
-				r.config.Bots[i].CommandPrefix = reqBody.CommandPrefix
-			}
-			if reqBody.AdminUsers != nil {
-				r.config.Bots[i].AdminUsers = reqBody.AdminUsers
-			}
+			next = cfg
 			break
 		}
 	}
+	if next.ID == "" {
+		NotFoundResponse(w, "bot config not found")
+		return
+	}
+	if reqBody.Name != "" {
+		next.Name = reqBody.Name
+	}
+	if reqBody.AppID != "" {
+		next.AppID = reqBody.AppID
+	}
+	if reqBody.AppSecret != "" {
+		next.AppSecret = reqBody.AppSecret
+	}
+	if reqBody.Mode != "" {
+		next.Mode = reqBody.Mode
+	}
+	if reqBody.Enabled != nil {
+		next.Enabled = *reqBody.Enabled
+	}
+	if reqBody.Plugins != nil {
+		next.Plugins = reqBody.Plugins
+	}
+	if reqBody.CommandPrefix != "" {
+		next.CommandPrefix = reqBody.CommandPrefix
+	}
+	if reqBody.AdminUsers != nil {
+		next.AdminUsers = reqBody.AdminUsers
+	}
+	replacement, err := core.NewBot(next)
+	if err != nil {
+		BadRequestResponse(w, "invalid bot configuration")
+		return
+	}
+	wasRunning := bot.IsRunning()
+	if err = r.botManager.ReplaceBot(replacement); err != nil {
+		InternalErrorResponse(w, "bot replacement failed")
+		return
+	}
+	bot = replacement
 
+	for i, cfg := range r.config.Bots {
+		if cfg.ID == id {
+			r.config.Bots[i] = next
+			break
+		}
+	}
 	if err := config.SaveConfig(r.configPath, r.config); err != nil {
 		InternalErrorResponse(w, "failed to save config")
 		return
+	}
+	if wasRunning && next.Enabled {
+		if err = bot.Start(); err != nil {
+			BadRequestResponse(w, "configuration saved; bot restart failed")
+			return
+		}
 	}
 
 	result := BotInfo{
 		ID:            bot.ID,
 		Name:          bot.Name,
 		AppID:         bot.AppID,
-		Enabled:       bot.Enabled,
+		Enabled:       bot.IsEnabled(),
 		Running:       bot.IsRunning(),
 		Mode:          bot.Mode,
 		Plugins:       bot.PluginIDs,
@@ -285,13 +286,16 @@ func (r *Router) StartBot(w http.ResponseWriter, req *http.Request) {
 			break
 		}
 	}
-	config.SaveConfig(r.configPath, r.config)
+	if err := config.SaveConfig(r.configPath, r.config); err != nil {
+		InternalErrorResponse(w, "failed to save config")
+		return
+	}
 
 	SuccessResponse(w, BotInfo{
 		ID:            bot.ID,
 		Name:          bot.Name,
 		AppID:         bot.AppID,
-		Enabled:       bot.Enabled,
+		Enabled:       bot.IsEnabled(),
 		Running:       bot.IsRunning(),
 		Mode:          bot.Mode,
 		Plugins:       bot.PluginIDs,
@@ -319,13 +323,16 @@ func (r *Router) StopBot(w http.ResponseWriter, req *http.Request) {
 			break
 		}
 	}
-	config.SaveConfig(r.configPath, r.config)
+	if err := config.SaveConfig(r.configPath, r.config); err != nil {
+		InternalErrorResponse(w, "failed to save config")
+		return
+	}
 
 	SuccessResponse(w, BotInfo{
 		ID:            bot.ID,
 		Name:          bot.Name,
 		AppID:         bot.AppID,
-		Enabled:       bot.Enabled,
+		Enabled:       bot.IsEnabled(),
 		Running:       bot.IsRunning(),
 		Mode:          bot.Mode,
 		Plugins:       bot.PluginIDs,

@@ -15,22 +15,19 @@ import (
 	"github.com/tencent-connect/botgo/constant"
 	"github.com/tencent-connect/botgo/dto"
 	"github.com/tencent-connect/botgo/dto/keyboard"
-	"github.com/tencent-connect/botgo/dto/message"
-	"github.com/tencent-connect/botgo/event"
 	"github.com/tencent-connect/botgo/openapi"
-	"github.com/tencent-connect/botgo/sessions/local"
 	"github.com/tencent-connect/botgo/token"
 	"golang.org/x/oauth2"
 
 	"shizukubot/config"
-	"shizukubot/plugin"
+	"shizukubot/events"
 )
 
 type Bot struct {
 	ID            string
 	Name          string
 	AppID         string
-	AppSecret     string
+	AppSecret     string `json:"-"`
 	Mode          string
 	OpenAPI       openapi.OpenAPI
 	TokenSource   oauth2.TokenSource
@@ -39,7 +36,10 @@ type Bot struct {
 	Running       bool
 	Stats         *Stats
 	LogManager    *LogManager
-	Engine        *plugin.ExecutionEngine
+	Dispatcher    *events.Dispatcher
+	Commands      func([]string, string) []string
+	lifecycle     sync.Mutex
+	workers       sync.WaitGroup
 	PluginIDs     []string
 	CommandPrefix string
 	AdminUsers    []string
@@ -49,7 +49,7 @@ type Bot struct {
 }
 
 func NewBot(cfg config.BotConfig) (*Bot, error) {
-	if cfg.ID == "" || cfg.AppID == "" || cfg.AppSecret == "" {
+	if cfg.ID == "" || cfg.AppID == "" || cfg.AppSecret == "" || (cfg.Mode != "" && cfg.Mode != "websocket" && cfg.Mode != "webhook") {
 		return nil, fmt.Errorf("bot config is invalid")
 	}
 
@@ -98,83 +98,6 @@ func NewBot(cfg config.BotConfig) (*Bot, error) {
 
 func (b *Bot) SetLogManager(lm *LogManager) {
 	b.LogManager = lm
-}
-
-func (b *Bot) Start() error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if b.Running {
-		return fmt.Errorf("bot %s is already running", b.ID)
-	}
-
-	b.ctx, b.cancel = context.WithCancel(context.Background())
-
-	if err := token.StartRefreshAccessToken(b.ctx, b.TokenSource); err != nil {
-		b.logError("failed to start token refresh: %v", err)
-		return fmt.Errorf("failed to start token refresh: %w", err)
-	}
-
-	b.registerEventHandlers()
-	b.Running = true
-	b.Enabled = true
-
-	if b.Mode == "websocket" {
-		go b.startWebSocket()
-	}
-
-	b.logInfo("bot %s started in %s mode", b.ID, b.Mode)
-	return nil
-}
-
-func (b *Bot) startWebSocket() {
-	ctx := b.ctx
-	tokenSource := b.TokenSource
-	api := b.OpenAPI
-	logManager := b.LogManager
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			apInfo, err := api.WS(ctx, nil, "")
-			if err != nil {
-				logManager.Error(b.ID, fmt.Sprintf("failed to get websocket AP info: %v", err))
-				time.Sleep(5 * time.Second)
-				continue
-			}
-
-			intents := dto.IntentGroupMessages | dto.IntentGuildAtMessage | dto.IntentDirectMessages | dto.IntentInteraction
-
-			logManager.Info(b.ID, fmt.Sprintf("starting websocket with shards: %d", apInfo.Shards))
-
-			sessionManager := local.New()
-			err = sessionManager.Start(apInfo, tokenSource, &intents)
-			if err != nil {
-				logManager.Error(b.ID, fmt.Sprintf("websocket session manager error: %v", err))
-				time.Sleep(5 * time.Second)
-				continue
-			}
-			return
-		}
-	}
-}
-
-func (b *Bot) Stop() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if !b.Running {
-		return
-	}
-
-	if b.cancel != nil {
-		b.cancel()
-	}
-	b.Running = false
-	b.Enabled = false
-	b.logInfo("bot %s stopped", b.ID)
 }
 
 func (b *Bot) IsRunning() bool {
@@ -304,7 +227,7 @@ func (b *Bot) SendGroupImageData(groupID string, imageData []byte) error {
 		SetHeader("Authorization", "QQBot "+token.AccessToken).
 		SetHeader("Content-Type", "multipart/form-data").
 		SetMultipartFormData(map[string]string{
-			"file_type": "1",
+			"file_type":    "1",
 			"srv_send_msg": "false",
 		}).
 		SetFileReader("file", "image.png", bytes.NewReader(imageData)).
@@ -418,7 +341,7 @@ func (b *Bot) SendC2CImageData(userID string, imageData []byte) error {
 		SetHeader("Authorization", "QQBot "+token.AccessToken).
 		SetHeader("Content-Type", "multipart/form-data").
 		SetMultipartFormData(map[string]string{
-			"file_type": "1",
+			"file_type":    "1",
 			"srv_send_msg": "false",
 		}).
 		SetFileReader("file", "image.png", bytes.NewReader(imageData)).
@@ -538,8 +461,8 @@ func (b *Bot) SendC2CRichMedia(userID, text, imageURL string) error {
 // SendGroupMarkdown 发送群 Markdown 消息
 func (b *Bot) SendGroupMarkdown(groupID, content string) error {
 	msg := &dto.MessageToCreate{
-		MsgType:   dto.MarkdownMsg,
-		Markdown:  &dto.Markdown{Content: content},
+		MsgType:  dto.MarkdownMsg,
+		Markdown: &dto.Markdown{Content: content},
 	}
 	if _, err := b.OpenAPI.PostGroupMessage(context.Background(), groupID, msg); err != nil {
 		b.logError("failed to send group markdown: %v", err)
@@ -553,8 +476,8 @@ func (b *Bot) SendGroupMarkdown(groupID, content string) error {
 // SendC2CMarkdown 发送 C2C Markdown 消息
 func (b *Bot) SendC2CMarkdown(userID, content string) error {
 	msg := &dto.MessageToCreate{
-		MsgType:   dto.MarkdownMsg,
-		Markdown:  &dto.Markdown{Content: content},
+		MsgType:  dto.MarkdownMsg,
+		Markdown: &dto.Markdown{Content: content},
 	}
 	if _, err := b.OpenAPI.PostC2CMessage(context.Background(), userID, msg); err != nil {
 		b.logError("failed to send C2C markdown: %v", err)
@@ -572,9 +495,9 @@ func (b *Bot) SendGroupKeyboard(groupID, markdown, keyboardJSON string) error {
 		return fmt.Errorf("解析按钮配置失败: %w", err)
 	}
 	msg := &dto.MessageToCreate{
-		MsgType:   dto.MarkdownMsg,
-		Markdown:  &dto.Markdown{Content: markdown},
-		Keyboard:  &kb,
+		MsgType:  dto.MarkdownMsg,
+		Markdown: &dto.Markdown{Content: markdown},
+		Keyboard: &kb,
 	}
 	if _, err := b.OpenAPI.PostGroupMessage(context.Background(), groupID, msg); err != nil {
 		b.logError("failed to send group keyboard: %v", err)
@@ -592,9 +515,9 @@ func (b *Bot) SendC2CKeyboard(userID, markdown, keyboardJSON string) error {
 		return fmt.Errorf("解析按钮配置失败: %w", err)
 	}
 	msg := &dto.MessageToCreate{
-		MsgType:   dto.MarkdownMsg,
-		Markdown:  &dto.Markdown{Content: markdown},
-		Keyboard:  &kb,
+		MsgType:  dto.MarkdownMsg,
+		Markdown: &dto.Markdown{Content: markdown},
+		Keyboard: &kb,
 	}
 	if _, err := b.OpenAPI.PostC2CMessage(context.Background(), userID, msg); err != nil {
 		b.logError("failed to send C2C keyboard: %v", err)
@@ -655,257 +578,6 @@ func (b *Bot) SendC2CVideo(userID, videoURL string) error {
 	return nil
 }
 
-func (b *Bot) registerEventHandlers() {
-	_ = event.RegisterHandlers(
-		b.GroupATMessageEventHandler(),
-		b.GroupMessageEventHandler(),
-		b.C2CMessageEventHandler(),
-		b.ATMessageEventHandler(),
-		b.C2CFriendEventHandler(),
-		b.SubscribeMsgStatusEventHandler(),
-		b.InteractionEventHandler(),
-		b.DirectMessageEventHandler(),
-		b.GroupManageEventHandler(),
-		b.C2CManageEventHandler(),
-	)
-}
-
-func (b *Bot) GroupATMessageEventHandler() event.GroupATMessageEventHandler {
-	return func(ev *dto.WSPayload, data *dto.WSGroupATMessageData) error {
-		b.Stats.IncReceived()
-		b.Stats.RecordGroup(data.GroupID)
-		if data.Author != nil {
-			b.Stats.RecordUser(data.Author.ID)
-		}
-		input := message.ETLInput(data.Content)
-		b.logInfo("received group AT message from %s: %s", data.GroupID, input)
-		if b.Engine != nil {
-			groupCallbacks := &plugin.ReplyCallbacks{
-				ReplyText: func(content string) error {
-					return b.SendGroupMessage(data.GroupID, content)
-				},
-				ReplyImage: func(imageURL string) error {
-					return b.SendGroupImage(data.GroupID, imageURL)
-				},
-				ReplyRichMedia: func(text, imageURL string) error {
-					return b.SendGroupRichMedia(data.GroupID, text, imageURL)
-				},
-				ReplyMarkdown: func(content string) error {
-					return b.SendGroupMarkdown(data.GroupID, content)
-				},
-				ReplyKeyboard: func(markdown, keyboardJSON string) error {
-					return b.SendGroupKeyboard(data.GroupID, markdown, keyboardJSON)
-				},
-				ReplyVideo: func(videoURL string) error {
-					return b.SendGroupVideo(data.GroupID, videoURL)
-				},
-			}
-			ctx := plugin.ConvertWSDataToContext(b.ID, "group_at_message", data, groupCallbacks, nil, b.LogManager.Debug)
-			ctx.PluginIDs = b.PluginIDs
-			if b.handleBuiltinCommand(ctx) {
-				return nil
-			}
-			b.Engine.ProcessEvent(ctx)
-		}
-		return nil
-	}
-}
-
-func (b *Bot) GroupMessageEventHandler() event.GroupMessageEventHandler {
-	return func(ev *dto.WSPayload, data *dto.WSGroupMessageData) error {
-		b.Stats.IncReceived()
-		b.Stats.RecordGroup(data.GroupID)
-		if data.Author != nil {
-			b.Stats.RecordUser(data.Author.ID)
-		}
-		input := message.ETLInput(data.Content)
-		b.logInfo("received group message from %s: %s", data.GroupID, input)
-		if b.Engine != nil {
-			groupCallbacks := &plugin.ReplyCallbacks{
-				ReplyText: func(content string) error {
-					return b.SendGroupMessage(data.GroupID, content)
-				},
-				ReplyImage: func(imageURL string) error {
-					return b.SendGroupImage(data.GroupID, imageURL)
-				},
-				ReplyRichMedia: func(text, imageURL string) error {
-					return b.SendGroupRichMedia(data.GroupID, text, imageURL)
-				},
-				ReplyMarkdown: func(content string) error {
-					return b.SendGroupMarkdown(data.GroupID, content)
-				},
-				ReplyKeyboard: func(markdown, keyboardJSON string) error {
-					return b.SendGroupKeyboard(data.GroupID, markdown, keyboardJSON)
-				},
-				ReplyVideo: func(videoURL string) error {
-					return b.SendGroupVideo(data.GroupID, videoURL)
-				},
-			}
-			ctx := plugin.ConvertWSDataToContext(b.ID, "group_message", data, groupCallbacks, nil, b.LogManager.Debug)
-			ctx.PluginIDs = b.PluginIDs
-			if b.handleBuiltinCommand(ctx) {
-				return nil
-			}
-			b.Engine.ProcessEvent(ctx)
-		}
-		return nil
-	}
-}
-
-func (b *Bot) C2CMessageEventHandler() event.C2CMessageEventHandler {
-	return func(ev *dto.WSPayload, data *dto.WSC2CMessageData) error {
-		b.Stats.IncReceived()
-		if data.Author != nil {
-			b.Stats.RecordUser(data.Author.ID)
-		}
-		b.logInfo("received C2C message from %s: %s", data.Author.ID, data.Content)
-		if b.Engine != nil {
-			userCallbacks := &plugin.ReplyCallbacks{
-				ReplyText: func(content string) error {
-					return b.SendC2CMessage(data.Author.ID, content)
-				},
-				ReplyImage: func(imageURL string) error {
-					return b.SendC2CImage(data.Author.ID, imageURL)
-				},
-				ReplyRichMedia: func(text, imageURL string) error {
-					return b.SendC2CRichMedia(data.Author.ID, text, imageURL)
-				},
-				ReplyMarkdown: func(content string) error {
-					return b.SendC2CMarkdown(data.Author.ID, content)
-				},
-				ReplyKeyboard: func(markdown, keyboardJSON string) error {
-					return b.SendC2CKeyboard(data.Author.ID, markdown, keyboardJSON)
-				},
-				ReplyVideo: func(videoURL string) error {
-					return b.SendC2CVideo(data.Author.ID, videoURL)
-				},
-			}
-			ctx := plugin.ConvertWSDataToContext(b.ID, "c2c_message", data, nil, userCallbacks, b.LogManager.Debug)
-			ctx.PluginIDs = b.PluginIDs
-			if b.handleBuiltinCommand(ctx) {
-				return nil
-			}
-			b.Engine.ProcessEvent(ctx)
-		}
-		return nil
-	}
-}
-
-func (b *Bot) ATMessageEventHandler() event.ATMessageEventHandler {
-	return func(ev *dto.WSPayload, data *dto.WSATMessageData) error {
-		b.Stats.IncReceived()
-		if data.ChannelID != "" {
-			b.Stats.RecordGroup(data.ChannelID)
-		}
-		if data.Author != nil {
-			b.Stats.RecordUser(data.Author.ID)
-		}
-		input := message.ETLInput(data.Content)
-		b.logInfo("received AT message from %s/%s: %s", data.GuildID, data.ChannelID, input)
-		if b.Engine != nil {
-			ctx := plugin.ConvertWSDataToContext(b.ID, "at_message", data, nil, nil, b.LogManager.Debug)
-			ctx.PluginIDs = b.PluginIDs
-			b.Engine.ProcessEvent(ctx)
-		}
-		return nil
-	}
-}
-
-func (b *Bot) C2CFriendEventHandler() event.C2CFriendEventHandler {
-	return func(ev *dto.WSPayload, data *dto.WSC2CFriendData) error {
-		b.logInfo("received C2C friend event: OpenID=%s, Nick=%s", data.OpenID, data.Nick)
-		if b.Engine != nil {
-			ctx := plugin.ConvertWSDataToContext(b.ID, "c2c_friend", data, nil, nil, b.LogManager.Debug)
-			ctx.PluginIDs = b.PluginIDs
-			b.Engine.ProcessEvent(ctx)
-		}
-		return nil
-	}
-}
-
-func (b *Bot) SubscribeMsgStatusEventHandler() event.SubscribeMsgStatusEventHandler {
-	return func(ev *dto.WSPayload, data *dto.WSSubscribeMsgStatus) error {
-		b.logInfo("received subscribe msg status: GroupOpenid=%s, Openid=%s", data.GroupOpenid, data.Openid)
-		if b.Engine != nil {
-			ctx := plugin.ConvertWSDataToContext(b.ID, "subscribe_msg_status", data, nil, nil, b.LogManager.Debug)
-			ctx.PluginIDs = b.PluginIDs
-			b.Engine.ProcessEvent(ctx)
-		}
-		return nil
-	}
-}
-
-func (b *Bot) InteractionEventHandler() event.InteractionEventHandler {
-	return func(ev *dto.WSPayload, data *dto.WSInteractionData) error {
-		b.logInfo("received interaction event: Type=%s, GuildID=%s", data.Type, data.GuildID)
-		if b.Engine != nil {
-			ctx := plugin.ConvertWSDataToContext(b.ID, "interaction", data, nil, nil, b.LogManager.Debug)
-			ctx.PluginIDs = b.PluginIDs
-			b.Engine.ProcessEvent(ctx)
-		}
-		return nil
-	}
-}
-
-func (b *Bot) DirectMessageEventHandler() event.DirectMessageEventHandler {
-	return func(ev *dto.WSPayload, data *dto.WSDirectMessageData) error {
-		b.Stats.IncReceived()
-		if data.ChannelID != "" {
-			b.Stats.RecordGroup(data.ChannelID)
-		}
-		if data.Author != nil {
-			b.Stats.RecordUser(data.Author.ID)
-		}
-		b.logInfo("received direct message from %s: %s", data.Author.ID, data.Content)
-		if b.Engine != nil {
-			ctx := plugin.ConvertWSDataToContext(b.ID, "direct_message", data, nil, nil, b.LogManager.Debug)
-			ctx.PluginIDs = b.PluginIDs
-			b.Engine.ProcessEvent(ctx)
-		}
-		return nil
-	}
-}
-
-func (b *Bot) GroupManageEventHandler() event.GroupManageEventHandler {
-	return func(ev *dto.WSPayload, data *dto.WSGroupManageData) error {
-		b.logInfo("received group manage event: Type=%s, GroupOpenID=%s", ev.Type, data.GroupOpenID)
-		if b.Engine != nil {
-			ctx := plugin.ConvertWSDataToContext(b.ID, "group_manage", data, nil, nil, b.LogManager.Debug)
-			ctx.PluginIDs = b.PluginIDs
-			ctx.EventData = data
-			ctx.Variables["event_type"] = string(ev.Type)
-			b.Engine.ProcessEvent(ctx)
-		}
-		return nil
-	}
-}
-
-func (b *Bot) C2CManageEventHandler() event.C2CManageEventHandler {
-	return func(ev *dto.WSPayload, data *dto.WSC2CManageData) error {
-		b.logInfo("received C2C manage event: Type=%s, OpenID=%s", ev.Type, data.OpenID)
-		if b.Engine != nil {
-			ctx := plugin.ConvertWSDataToContext(b.ID, "c2c_manage", data, nil, nil, b.LogManager.Debug)
-			ctx.PluginIDs = b.PluginIDs
-			ctx.EventData = data
-			ctx.Variables["event_type"] = string(ev.Type)
-			b.Engine.ProcessEvent(ctx)
-		}
-		return nil
-	}
-}
-
-func (b *Bot) handleGroupMessage(input string, data *dto.WSGroupATMessageData) error {
-	return nil
-}
-
-func (b *Bot) handleC2CMessage(content string, data *dto.WSC2CMessageData) error {
-	return nil
-}
-
-func (b *Bot) handleATMessage(input string, data *dto.WSATMessageData) error {
-	return nil
-}
-
 func (b *Bot) logDebug(format string, args ...interface{}) {
 	if b.LogManager != nil {
 		b.LogManager.Debug(b.ID, fmt.Sprintf(format, args...))
@@ -929,3 +601,6 @@ func (b *Bot) logError(format string, args ...interface{}) {
 		b.LogManager.Error(b.ID, fmt.Sprintf(format, args...))
 	}
 }
+
+// IsEnabled returns the configured startup flag under the bot lock.
+func (b *Bot) IsEnabled() bool { b.mu.Lock(); defer b.mu.Unlock(); return b.Enabled }

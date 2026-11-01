@@ -1,15 +1,19 @@
 package plugin
 
 import (
+	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
 	"regexp"
+	"shizukubot/events"
 	"strconv"
 	"strings"
 	"sync"
@@ -134,22 +138,23 @@ func extractAttachments(ctx *EventContext) []*dto.MessageAttachment {
 }
 
 type EventContext struct {
-	BotID             string
-	EventType         string
-	EventData         interface{}
-	Variables         map[string]interface{}
-	Message           string
-	UserID            string
-	GroupID           string
-	ChannelID         string
-	GuildID           string
-	MessageID         string
-	PluginIDs         []string
-	ExecutedPlugins   map[string]bool // 防重入：标记已执行的插件
-	ReplyToUser       func(content string) error
-	ReplyToGroup      func(content string) error
-	ReplyImageToUser  func(imageURL string) error
-	ReplyImageToGroup func(imageURL string) error
+	Context               context.Context
+	BotID                 string
+	EventType             string
+	EventData             interface{}
+	Variables             map[string]interface{}
+	Message               string
+	UserID                string
+	GroupID               string
+	ChannelID             string
+	GuildID               string
+	MessageID             string
+	PluginIDs             []string
+	ExecutedPlugins       map[string]bool // 防重入：标记已执行的插件
+	ReplyToUser           func(content string) error
+	ReplyToGroup          func(content string) error
+	ReplyImageToUser      func(imageURL string) error
+	ReplyImageToGroup     func(imageURL string) error
 	ReplyRichMediaToUser  func(text, imageURL string) error
 	ReplyRichMediaToGroup func(text, imageURL string) error
 	ReplyMarkdownToUser   func(content string) error
@@ -158,7 +163,7 @@ type EventContext struct {
 	ReplyKeyboardToGroup  func(markdown string, keyboardJSON string) error
 	ReplyVideoToUser      func(videoURL string) error
 	ReplyVideoToGroup     func(videoURL string) error
-	LogDebug          func(botID, message string)
+	LogDebug              func(botID, message string)
 }
 
 type GraphData struct {
@@ -227,20 +232,20 @@ type SlotData struct {
 }
 
 type LinkData struct {
-	ID          int    `json:"id"`
-	Origin      int    `json:"origin_id"`
-	OriginSlot  int    `json:"origin_slot"`
-	Target      int    `json:"target_id"`
-	TargetSlot  int    `json:"target_slot"`
-	Type        string `json:"type"`
+	ID         int    `json:"id"`
+	Origin     int    `json:"origin_id"`
+	OriginSlot int    `json:"origin_slot"`
+	Target     int    `json:"target_id"`
+	TargetSlot int    `json:"target_slot"`
+	Type       string `json:"type"`
 }
 
 type ExecutionEngine struct {
-	store             *PluginStore
-	executors         map[string]NodeExecutor
-	mu                sync.RWMutex
-	graphCache        sync.Map // map[string]*parsedGraph，key=pluginID:updatedAt
-	processedMessages sync.Map // map[string]time.Time，key=去重指纹，value=处理时间（定时清理）
+	store      *PluginStore
+	executors  map[string]NodeExecutor
+	mu         sync.RWMutex
+	graphCache sync.Map // map[string]*parsedGraph，key=pluginID:updatedAt
+	dedup      *events.Deduper
 }
 
 // parsedGraph 是解析后的流程图缓存（只读，可并发共享）
@@ -306,41 +311,10 @@ func NewExecutionEngine(store *PluginStore) *ExecutionEngine {
 		fmt.Printf("[CustomNode] loaded %d custom nodes\n", len(cnStore.nodes))
 	}
 
-	// 启动去重记录定时清理（每 1 分钟清理一次，保留 5 分钟窗口）
-	go engine.cleanupProcessedMessages()
+	// 身份去重有界存储，惰性过期，无常驻清理 goroutine。
+	engine.dedup = events.NewDeduper(5*time.Minute, 10000)
 
 	return engine
-}
-
-// buildDedupKey 生成消息去重指纹。用（来源ID + 发送者ID + 消息内容）组合，
-// 解决同一条消息被 QQ 以 GROUP_AT_MESSAGE_CREATE 和 GROUP_MESSAGE_CREATE 两个事件重复推送的问题。
-func (e *ExecutionEngine) buildDedupKey(ctx *EventContext) string {
-	// 至少要有来源（群/频道）和发送者，否则不去重
-	sourceID := ctx.GroupID
-	if sourceID == "" {
-		sourceID = ctx.ChannelID
-	}
-	if sourceID == "" || ctx.UserID == "" {
-		return ""
-	}
-	// 用"|"分隔，避免字段值互相渗透
-	return sourceID + "|" + ctx.UserID + "|" + ctx.Message
-}
-
-// cleanupProcessedMessages 定期清理过期的去重记录，避免内存无限增长。
-// 保留窗口 5 分钟，足够覆盖 QQ 双事件推送的时间差（通常在毫秒级）。
-func (e *ExecutionEngine) cleanupProcessedMessages() {
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
-	for range ticker.C {
-		cutoff := time.Now().Add(-5 * time.Minute)
-		e.processedMessages.Range(func(key, value interface{}) bool {
-			if t, ok := value.(time.Time); ok && t.Before(cutoff) {
-				e.processedMessages.Delete(key)
-			}
-			return true
-		})
-	}
 }
 
 func (e *ExecutionEngine) registerBuiltinExecutors() {
@@ -494,13 +468,8 @@ func (e *ExecutionEngine) RegisterExecutor(nodeType string, executor NodeExecuto
 }
 
 func (e *ExecutionEngine) ProcessEvent(ctx *EventContext) bool {
-	// 消息级去重：同一条消息可能同时触发 GROUP_AT_MESSAGE_CREATE + GROUP_MESSAGE_CREATE 两个事件
-	// 用（群ID/频道ID + 发送者ID + 消息内容）生成指纹，比单纯 MessageID 更可靠
-	if dedupKey := e.buildDedupKey(ctx); dedupKey != "" {
-		now := time.Now()
-		if _, already := e.processedMessages.LoadOrStore(dedupKey, now); already {
-			return false
-		}
+	if e.dedup.Seen(events.Event{BotID: ctx.BotID, Type: events.Type(ctx.EventType), Source: legacySource(ctx), MessageID: ctx.MessageID, GroupID: ctx.GroupID, ChannelID: ctx.ChannelID, GuildID: ctx.GuildID, UserID: ctx.UserID}) {
+		return false
 	}
 	if ctx.ExecutedPlugins == nil {
 		ctx.ExecutedPlugins = make(map[string]bool)
@@ -551,66 +520,30 @@ func (e *ExecutionEngine) ProcessEventAndGetReplies(ctx *EventContext) ([]string
 
 // ProcessEventAndGetRepliesWithPlugin 执行插件并捕获回复
 // 如果 pluginID 不为空，则只执行指定的插件（无论是否命中事件，便于沙盒测试）；否则执行所有命中事件的已启用插件
-func (e *ExecutionEngine) ProcessEventAndGetRepliesWithPlugin(ctx *EventContext, pluginID string) ([]string, error) {
-	if ctx.ExecutedPlugins == nil {
-		ctx.ExecutedPlugins = make(map[string]bool)
+func (e *ExecutionEngine) ProcessEventAndGetRepliesWithPlugin(c *EventContext, pluginID string) ([]string, error) {
+	replies := []string{}
+	raw, err := json.Marshal(c.EventData)
+	if err != nil {
+		return nil, err
 	}
-	var plugins []*Plugin
-	if pluginID != "" {
-		// 只执行指定插件（无论是否启用，便于测试）
-		if p, ok := e.store.Get(pluginID); ok {
-			plugins = []*Plugin{p}
-		}
-	} else {
-		// 只执行命中事件的插件
-		allPlugins := e.getPluginsForExecution(ctx)
-		for _, p := range allPlugins {
-			if e.hasEventNodeHit(p, ctx) {
-				plugins = append(plugins, p)
-			}
-		}
+	if c.EventData == nil {
+		raw = nil
 	}
-	var replies []string
-	captureReply := func(content string) error {
-		replies = append(replies, content)
+	ev := events.Event{BotID: c.BotID, Type: events.Type(c.EventType), Source: legacySource(c), Raw: raw, Message: c.Message, MessageID: c.MessageID, UserID: c.UserID, GroupID: c.GroupID, ChannelID: c.ChannelID, GuildID: c.GuildID, PluginIDs: c.PluginIDs}
+	ev.Reply = func(_ context.Context, r events.Reply) error {
+		value := r.Text
+		switch r.Kind {
+		case "image", "video":
+			value = "[" + r.Kind + "] " + r.URL
+		case "rich_media":
+			value += "\n[image] " + r.URL
+		}
+		replies = append(replies, value)
 		return nil
 	}
-	captureImageReply := func(imageURL string) error {
-		replies = append(replies, fmt.Sprintf("[图片] %s", imageURL))
-		return nil
-	}
-	captureRichMediaReply := func(text, imageURL string) error {
-		replies = append(replies, fmt.Sprintf("%s\n[图片] %s", text, imageURL))
-		return nil
-	}
-	origReplyToUser := ctx.ReplyToUser
-	origReplyToGroup := ctx.ReplyToGroup
-	origReplyImageToUser := ctx.ReplyImageToUser
-	origReplyImageToGroup := ctx.ReplyImageToGroup
-	origReplyRichMediaToUser := ctx.ReplyRichMediaToUser
-	origReplyRichMediaToGroup := ctx.ReplyRichMediaToGroup
-	ctx.ReplyToUser = captureReply
-	ctx.ReplyToGroup = captureReply
-	ctx.ReplyImageToUser = captureImageReply
-	ctx.ReplyImageToGroup = captureImageReply
-	ctx.ReplyRichMediaToUser = captureRichMediaReply
-	ctx.ReplyRichMediaToGroup = captureRichMediaReply
-
-	for _, p := range plugins {
-		if err := e.ExecutePlugin(ctx, p); err != nil {
-			errMsg := fmt.Sprintf("⚠️ 插件执行出错：%v", err)
-			// 沙盒模式下也将错误信息捕获为回复
-			replies = append(replies, errMsg)
-		}
-	}
-
-	ctx.ReplyToUser = origReplyToUser
-	ctx.ReplyToGroup = origReplyToGroup
-	ctx.ReplyImageToUser = origReplyImageToUser
-	ctx.ReplyImageToGroup = origReplyImageToGroup
-	ctx.ReplyRichMediaToUser = origReplyRichMediaToUser
-	ctx.ReplyRichMediaToGroup = origReplyRichMediaToGroup
-	return replies, nil
+	adapter := LegacyAdapter{Engine: e, LogDebug: c.LogDebug}
+	err = adapter.Execute(executionContext(c), ev, pluginID)
+	return replies, err
 }
 
 // getPluginsForExecution 根据ctx.PluginIDs决定执行的插件列表
@@ -632,10 +565,12 @@ func (e *ExecutionEngine) ExecutePlugin(ctx *EventContext, plugin *Plugin) error
 		ctx.ExecutedPlugins[plugin.ID] = true
 	}
 
-	// 注册该插件内嵌的自定义节点
-	if count := e.RegisterPluginCustomNodes(plugin); count > 0 {
-		// 清空缓存，确保新注册的节点能被识别
-		e.graphCache.Delete(fmt.Sprintf("%s:%d", plugin.ID, plugin.UpdatedAt))
+	// Custom definitions are per execution, avoiding cross-plugin callback replacement.
+	local := make(map[string]NodeExecutor)
+	for _, def := range ParsePluginCustomNodes(plugin) {
+		if def != nil {
+			local[def.Type] = &CustomNodeExecutor{def: def}
+		}
 	}
 
 	pg := e.getParsedGraph(plugin)
@@ -647,6 +582,11 @@ func (e *ExecutionEngine) ExecutePlugin(ctx *EventContext, plugin *Plugin) error
 
 	var executeNode func(nodeID int) error
 	executeNode = func(nodeID int) error {
+		if ctx.Context != nil {
+			if err := ctx.Context.Err(); err != nil {
+				return err
+			}
+		}
 		if executed[nodeID] {
 			return nil
 		}
@@ -695,7 +635,13 @@ func (e *ExecutionEngine) ExecutePlugin(ctx *EventContext, plugin *Plugin) error
 			}
 		}
 
+		e.mu.RLock()
 		executor, ok := e.executors[node.Type]
+		e.mu.RUnlock()
+		if custom, exists := local[node.Type]; exists {
+			executor = custom
+			ok = true
+		}
 		if !ok {
 			return fmt.Errorf("no executor for node type: %s", node.Type)
 		}
@@ -749,16 +695,19 @@ func (e *ExecutionEngine) ExecutePlugin(ctx *EventContext, plugin *Plugin) error
 }
 
 // getParsedGraph 获取插件流程图的解析结果（带缓存）
-// 缓存 key 包含 UpdatedAt，插件更新后自动失效
+// 每个插件只保留一份缓存，内容摘要检测同秒更新。
 func (e *ExecutionEngine) getParsedGraph(plugin *Plugin) *parsedGraph {
-	cacheKey := plugin.ID + ":" + strconv.FormatInt(plugin.UpdatedAt, 10)
-	if v, ok := e.graphCache.Load(cacheKey); ok {
-		return v.(*parsedGraph)
+	signature := sha256.Sum256(plugin.Graph)
+	if v, ok := e.graphCache.Load(plugin.ID); ok {
+		entry := v.(cachedGraph)
+		if entry.signature == signature {
+			return entry.graph
+		}
 	}
-
 	pg := parseGraph(plugin.Graph)
-	e.graphCache.Store(cacheKey, pg)
+	e.graphCache.Store(plugin.ID, cachedGraph{signature, pg})
 	return pg
+
 }
 
 // GetCommandList 扫描已启用插件图，收集所有 event/on_command 节点定义的指令。
@@ -869,9 +818,9 @@ func parseGraph(graphData json.RawMessage) *parsedGraph {
 							link = int(getFloatVal(linkVal, ""))
 						}
 						node.Inputs = append(node.Inputs, SlotData{
-							Name:  getStrVal(inputData, "name"),
-							Type:  SlotType(getStrVal(inputData, "type")),
-							Link:  link,
+							Name: getStrVal(inputData, "name"),
+							Type: SlotType(getStrVal(inputData, "type")),
+							Link: link,
 						})
 					}
 				}
@@ -881,9 +830,9 @@ func parseGraph(graphData json.RawMessage) *parsedGraph {
 				for _, outputRaw := range outputsRaw {
 					if outputData, ok := outputRaw.(map[string]interface{}); ok {
 						slot := SlotData{
-							Name:  getStrVal(outputData, "name"),
-							Type:  SlotType(getStrVal(outputData, "type")),
-							Link:  -1,
+							Name: getStrVal(outputData, "name"),
+							Type: SlotType(getStrVal(outputData, "type")),
+							Link: -1,
 						}
 						if linkVal, exists := outputData["link"]; exists && linkVal != nil {
 							slot.Link = int(getFloatVal(linkVal, ""))
@@ -1124,14 +1073,14 @@ func (e *OnGroupMessageExecutor) Execute(ctx *EventContext, node *NodeData, inpu
 		senderNick = data.Author.Username
 	}
 	return map[string]interface{}{
-		"消息文本":   ctx.Message,
-		"发送者ID":   ctx.UserID,
+		"消息文本":  ctx.Message,
+		"发送者ID": ctx.UserID,
 		"发送者昵称": senderNick,
-		"群聊ID":    ctx.GroupID,
-		"消息ID":    ctx.MessageID,
-		"所有@ID":   mentionIDs,
-		"所有@昵称":  mentionNames,
-		"event":    ctx.EventData,
+		"群聊ID":  ctx.GroupID,
+		"消息ID":  ctx.MessageID,
+		"所有@ID": mentionIDs,
+		"所有@昵称": mentionNames,
+		"event": ctx.EventData,
 	}, nil
 }
 
@@ -1144,13 +1093,13 @@ func (e *OnC2CMessageExecutor) Execute(ctx *EventContext, node *NodeData, inputs
 		senderNick = data.Author.Username
 	}
 	return map[string]interface{}{
-		"消息文本":   ctx.Message,
-		"发送者ID":   ctx.UserID,
+		"消息文本":  ctx.Message,
+		"发送者ID": ctx.UserID,
 		"发送者昵称": senderNick,
-		"消息ID":    ctx.MessageID,
-		"所有@ID":   mentionIDs,
-		"所有@昵称":  mentionNames,
-		"event":    ctx.EventData,
+		"消息ID":  ctx.MessageID,
+		"所有@ID": mentionIDs,
+		"所有@昵称": mentionNames,
+		"event": ctx.EventData,
 	}, nil
 }
 
@@ -1163,15 +1112,15 @@ func (e *OnGuildMessageExecutor) Execute(ctx *EventContext, node *NodeData, inpu
 		senderNick = data.Author.Username
 	}
 	return map[string]interface{}{
-		"消息文本":   ctx.Message,
+		"消息文本":    ctx.Message,
 		"发送者ID":   ctx.UserID,
-		"发送者昵称": senderNick,
+		"发送者昵称":   senderNick,
 		"频道ID":    ctx.ChannelID,
-		"GuildID":  ctx.GuildID,
+		"GuildID": ctx.GuildID,
 		"消息ID":    ctx.MessageID,
 		"所有@ID":   mentionIDs,
-		"所有@昵称":  mentionNames,
-		"event":    ctx.EventData,
+		"所有@昵称":   mentionNames,
+		"event":   ctx.EventData,
 	}, nil
 }
 
@@ -1184,15 +1133,15 @@ func (e *OnDirectMessageExecutor) Execute(ctx *EventContext, node *NodeData, inp
 		senderNick = data.Author.Username
 	}
 	return map[string]interface{}{
-		"消息文本":   ctx.Message,
+		"消息文本":    ctx.Message,
 		"发送者ID":   ctx.UserID,
-		"发送者昵称": senderNick,
+		"发送者昵称":   senderNick,
 		"频道ID":    ctx.ChannelID,
-		"GuildID":  ctx.GuildID,
+		"GuildID": ctx.GuildID,
 		"消息ID":    ctx.MessageID,
 		"所有@ID":   mentionIDs,
-		"所有@昵称":  mentionNames,
-		"event":    ctx.EventData,
+		"所有@昵称":   mentionNames,
+		"event":   ctx.EventData,
 	}, nil
 }
 
@@ -1231,18 +1180,18 @@ func (e *OnCommandExecutor) Execute(ctx *EventContext, node *NodeData, inputs ma
 		firstMentionName = mentionNames[0]
 	}
 	return map[string]interface{}{
-		"指令名":      cmdName,
-		"参数列表":     args,
-		"参数文本":     argsText,
+		"指令名":     cmdName,
+		"参数列表":    args,
+		"参数文本":    argsText,
 		"清洗后消息":   cleanedMsg,
-		"原始消息":     ctx.Message,
-		"发送者ID":     ctx.UserID,
-		"来源ID":      sourceID,
-		"消息ID":      ctx.MessageID,
-		"第一个@的ID":  firstMentionID,
+		"原始消息":    ctx.Message,
+		"发送者ID":   ctx.UserID,
+		"来源ID":    sourceID,
+		"消息ID":    ctx.MessageID,
+		"第一个@的ID": firstMentionID,
 		"第一个@的昵称": firstMentionName,
-		"所有@ID":     mentionIDs,
-		"所有@昵称":    mentionNames,
+		"所有@ID":   mentionIDs,
+		"所有@昵称":   mentionNames,
 	}, nil
 }
 
@@ -1563,12 +1512,12 @@ func (e *SendVideoExecutor) Execute(ctx *EventContext, node *NodeData, inputs ma
 
 // playwright 浏览器池：保持一个长驻浏览器进程，每次渲染创建新页面并行执行
 var (
-	pw          *playwright.Playwright
-	pwBrowser   playwright.Browser
-	pwOnce      sync.Once
-	pwInitErr   error
-	pwSem       chan struct{}
-	pwMu        sync.Mutex
+	pw        *playwright.Playwright
+	pwBrowser playwright.Browser
+	pwOnce    sync.Once
+	pwInitErr error
+	pwSem     chan struct{}
+	pwMu      sync.Mutex
 )
 
 // initPlaywright 初始化全局浏览器池（只执行一次）
@@ -1860,9 +1809,9 @@ func (e *ParseCommandExecutor) Execute(ctx *EventContext, node *NodeData, inputs
 		argsText = strings.Join(args, " ")
 	}
 	return map[string]interface{}{
-		"指令名":    cmdName,
-		"参数列表":   args,
-		"参数文本":   argsText,
+		"指令名":   cmdName,
+		"参数列表":  args,
+		"参数文本":  argsText,
 		"清洗后文本": cleaned,
 	}, nil
 }
@@ -1881,9 +1830,9 @@ func (e *ExtractMentionUserExecutor) Execute(ctx *EventContext, node *NodeData, 
 	}
 	return map[string]interface{}{
 		"第一个@的昵称": firstName,
-		"所有@昵称":    mentionNames,
-		"第一个@的ID":  firstID,
-		"所有@ID":     mentionIDs,
+		"所有@昵称":   mentionNames,
+		"第一个@的ID": firstID,
+		"所有@ID":   mentionIDs,
 	}, nil
 }
 
@@ -1911,12 +1860,12 @@ func (e *ParseImagesExecutor) Execute(ctx *EventContext, node *NodeData, inputs 
 		}
 	}
 	return map[string]interface{}{
-		"图片URL列表":   imageURLs,
+		"图片URL列表":  imageURLs,
 		"图片数量":     len(imageURLs),
 		"第一张图片URL": firstOrEmpty(imageURLs),
-		"图片文件名列表": imageFileNames,
-		"视频URL列表":   videoURLs,
-		"语音URL列表":   voiceURLs,
+		"图片文件名列表":  imageFileNames,
+		"视频URL列表":  videoURLs,
+		"语音URL列表":  voiceURLs,
 	}, nil
 }
 
@@ -2402,24 +2351,22 @@ func (e *HTTPRequestExecutor) Execute(ctx *EventContext, node *NodeData, inputs 
 	reqURL := getStrInput(inputs, "URL")
 	body := getStrInput(inputs, "请求体")
 
-	var resp *http.Response
-	var err error
-	switch method {
-	case "GET":
-		resp, err = http.Get(reqURL)
-	case "POST":
-		resp, err = http.Post(reqURL, "application/json", strings.NewReader(body))
-	default:
-		resp, err = http.Get(reqURL)
-	}
+	req, err := http.NewRequestWithContext(executionContext(ctx), method, reqURL, strings.NewReader(body))
 	if err != nil {
-		return map[string]interface{}{"响应内容": "", "状态码": 0}, nil
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		return nil, err
 	}
 	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 10240))
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"响应内容": string(data), "状态码": resp.StatusCode}, nil
 
-	buf := make([]byte, 10240)
-	n, _ := resp.Body.Read(buf)
-	return map[string]interface{}{"响应内容": string(buf[:n]), "状态码": resp.StatusCode}, nil
 }
 
 type JSONParseExecutor struct{}
@@ -2609,7 +2556,13 @@ func (e *DelayExecutor) Execute(ctx *EventContext, node *NodeData, inputs map[st
 	if delay <= 0 {
 		delay = 1000
 	}
-	time.Sleep(time.Duration(delay) * time.Millisecond)
+	timer := time.NewTimer(time.Duration(delay) * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-executionContext(ctx).Done():
+		return nil, executionContext(ctx).Err()
+	}
 	return map[string]interface{}{"完成": true}, nil
 }
 
@@ -2929,21 +2882,21 @@ func (e *GetSourceExecutor) Execute(ctx *EventContext, node *NodeData, inputs ma
 // ==================== EventContext 构建 ====================
 
 type ReplyCallbacks struct {
-	ReplyText       func(content string) error
-	ReplyImage      func(imageURL string) error
-	ReplyRichMedia  func(text, imageURL string) error
-	ReplyMarkdown   func(content string) error
-	ReplyKeyboard   func(markdown, keyboardJSON string) error
-	ReplyVideo      func(videoURL string) error
+	ReplyText      func(content string) error
+	ReplyImage     func(imageURL string) error
+	ReplyRichMedia func(text, imageURL string) error
+	ReplyMarkdown  func(content string) error
+	ReplyKeyboard  func(markdown, keyboardJSON string) error
+	ReplyVideo     func(videoURL string) error
 }
 
 func ConvertWSDataToContext(botID string, eventType string, data interface{}, groupCallbacks *ReplyCallbacks, userCallbacks *ReplyCallbacks, logDebug func(botID, message string)) *EventContext {
 	ctx := &EventContext{
-		BotID:       botID,
-		EventType:   eventType,
-		EventData:   data,
-		Variables:   make(map[string]interface{}),
-		LogDebug:    logDebug,
+		BotID:     botID,
+		EventType: eventType,
+		EventData: data,
+		Variables: make(map[string]interface{}),
+		LogDebug:  logDebug,
 	}
 
 	switch v := data.(type) {
@@ -3027,4 +2980,23 @@ func ConvertWSDataToContext(botID string, eventType string, data interface{}, gr
 	}
 
 	return ctx
+}
+
+func legacySource(c *EventContext) events.Source {
+	switch c.EventType {
+	case "group_message", "group_at_message":
+		return events.Group
+	case "c2c_message":
+		return events.C2C
+	case "at_message", "guild_message":
+		return events.Guild
+	case "direct_message":
+		return events.Direct
+	}
+	return ""
+}
+
+type cachedGraph struct {
+	signature [32]byte
+	graph     *parsedGraph
 }

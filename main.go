@@ -44,11 +44,11 @@ func main() {
 	}
 
 	// 注入内置指令回复模板，供运行中的 bot 读取（配置页保存时会热更新）
-	core.GlobalCommandTemplates = &core.CommandTemplates{
+	core.SetCommandTemplates(&core.CommandTemplates{
 		Help:    cfg.BuiltinCommands.Help,
 		Status:  cfg.BuiltinCommands.Status,
 		Shizuku: cfg.BuiltinCommands.Shizuku,
-	}
+	})
 
 	botManager := core.NewBotManager()
 	logManager := botManager.GetLogManager()
@@ -72,16 +72,13 @@ func main() {
 		fmt.Printf("   Bot [%s] %s - %s\n", bot.ID, bot.Name, status)
 	}
 
+	router := api.NewRouter(botManager, cfg, cfgPath, logManager)
+
 	if err := botManager.StartAll(); err != nil {
 		fmt.Printf("⚠️  Some bots failed to start: %v\n", err)
 	}
 
 	fmt.Println("✅ All bots started")
-
-	router := api.NewRouter(botManager, cfg, cfgPath, logManager)
-
-	// 将插件引擎设置到机器人管理器中，使事件处理可以触发插件
-	botManager.SetEngine(router.GetEngine())
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.WebUI.Port),
@@ -92,7 +89,6 @@ func main() {
 
 	go func() {
 		fmt.Printf("🚀 WebUI Server listening on http://localhost:%d\n", cfg.WebUI.Port)
-		fmt.Printf("🔐 WebUI Password: %s\n", cfg.WebUI.Password)
 		fmt.Printf("📡 Webhook Endpoint: http://localhost:%d/webhook/{botID}\n", cfg.WebUI.Port)
 
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

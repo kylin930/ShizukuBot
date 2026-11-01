@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -51,6 +52,7 @@ package main
 
 import (
 	"encoding/json"
+ "context"
 	"fmt"
 	"math"
 	"math/rand"
@@ -100,13 +102,13 @@ func run() map[string]interface{} {
 `, declarations, string(inputsJSON), string(ctxJSON), code)
 
 	i := newYaegi()
-	_, err := i.Eval(fullCode)
+	_, err := i.EvalWithContext(executionContext(ctx), fullCode)
 	if err != nil {
 		return nil, fmt.Errorf("code/go eval error: %v", err)
 	}
 
 	// 调用 run 函数获取结果
-	v, err := i.Eval("run()")
+	v, err := i.EvalWithContext(executionContext(ctx), "run()")
 	if err != nil {
 		return nil, fmt.Errorf("code/go run error: %v", err)
 	}
@@ -119,4 +121,11 @@ func run() map[string]interface{} {
 	}
 
 	return output, nil
+}
+
+func executionContext(c *EventContext) context.Context {
+	if c.Context != nil {
+		return c.Context
+	}
+	return context.Background()
 }

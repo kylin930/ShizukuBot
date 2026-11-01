@@ -11,8 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/handlers"
+	"context"
 	"github.com/gorilla/mux"
+	"shizukubot/events"
 
 	"shizukubot/config"
 	"shizukubot/core"
@@ -85,14 +86,13 @@ type Router struct {
 	templates   *template.Template
 	pluginStore *plugin.PluginStore
 	engine      *plugin.ExecutionEngine
+	apiMu       sync.Mutex
 }
 
 func NewRouter(botManager *core.BotManager, cfg *config.Config, cfgPath string, logManager *core.LogManager) *Router {
 	pluginStore, err := plugin.NewPluginStore("data/plugins")
 	if err != nil {
-		pluginStore = &plugin.PluginStore{
-			Plugins: make(map[string]*plugin.Plugin),
-		}
+		panic("plugin store initialization failed")
 	}
 
 	if err := webui.InitUserStore("data/users.json"); err != nil {
@@ -100,18 +100,38 @@ func NewRouter(botManager *core.BotManager, cfg *config.Config, cfgPath string, 
 	}
 
 	r := &Router{
-		Router:     mux.NewRouter(),
-		botManager: botManager,
-		config:     cfg,
-		configPath: cfgPath,
-		logManager: logManager,
-		templates:  template.Must(template.ParseFiles("webui/templates/login.html")),
+		Router:      mux.NewRouter(),
+		botManager:  botManager,
+		config:      cfg,
+		configPath:  cfgPath,
+		logManager:  logManager,
+		templates:   template.Must(template.ParseFiles("webui/templates/login.html")),
 		pluginStore: pluginStore,
 		engine:      plugin.NewExecutionEngine(pluginStore),
 	}
 
+	webui.ConfigureCookies(cfg.WebUI.SecureCookies)
 	webui.InitSessionStore(cfg.WebUI.Password)
 
+	botManager.SetCommandProvider(r.engine.GetCommandList)
+	adapter := &plugin.LegacyAdapter{Engine: r.engine, LogDebug: logManager.Debug}
+	botManager.Events().Subscribe(events.Filter{}, func(ctx context.Context, e events.Event) error {
+		if bot, ok := botManager.GetBot(e.BotID); ok {
+			if e.MessageID != "" {
+				bot.Stats.IncReceived()
+				if e.GroupID != "" {
+					bot.Stats.RecordGroup(e.GroupID)
+				}
+				if e.UserID != "" {
+					bot.Stats.RecordUser(e.UserID)
+				}
+			}
+			if bot.HandleBuiltinCommand(ctx, e) {
+				return nil
+			}
+		}
+		return adapter.Handle(ctx, e)
+	})
 	r.registerRoutes()
 
 	if cfg.WebUI.Host != "" {
@@ -128,7 +148,8 @@ func (r *Router) GetEngine() *plugin.ExecutionEngine {
 func (r *Router) registerRoutes() {
 	r.HandleFunc("/login", r.LoginPageHandler).Methods(http.MethodGet)
 	r.HandleFunc("/login", webui.LoginHandler).Methods(http.MethodPost)
-	r.HandleFunc("/logout", webui.LogoutHandler).Methods(http.MethodGet)
+	r.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusMethodNotAllowed) }).Methods(http.MethodGet)
+	r.HandleFunc("/logout", webui.AuthMiddleware(http.HandlerFunc(webui.LogoutHandler)).ServeHTTP).Methods(http.MethodPost)
 
 	r.PathPrefix("/static/").Handler(correctMIME(http.StripPrefix("/static/", http.FileServer(http.Dir("webui/static")))))
 	r.PathPrefix("/litegraph/").Handler(correctMIME(http.StripPrefix("/litegraph/", http.FileServer(http.Dir("litegraph.js-release")))))
@@ -137,7 +158,14 @@ func (r *Router) registerRoutes() {
 	r.HandleFunc("/webhook/{botID}", webhook.NewHandler(r.botManager).ServeHTTP).Methods(http.MethodPost)
 
 	api := r.PathPrefix("/api").Subrouter()
-	api.Use(webui.AuthMiddleware)
+	api.Use(webui.AdminMiddleware)
+	api.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			r.apiMu.Lock()
+			defer r.apiMu.Unlock()
+			next.ServeHTTP(w, req)
+		})
+	})
 	api.HandleFunc("/bots", r.GetBots).Methods(http.MethodGet)
 	api.HandleFunc("/bots/{id}", r.GetBot).Methods(http.MethodGet)
 	api.HandleFunc("/bots", r.CreateBot).Methods(http.MethodPost)
@@ -198,11 +226,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *Router) WithCORS() http.Handler {
-	allowedOrigins := handlers.AllowedOrigins([]string{"*"})
-	allowedMethods := handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"})
-	allowedHeaders := handlers.AllowedHeaders([]string{"Content-Type", "Authorization"})
-
-	return handlers.CORS(allowedOrigins, allowedMethods, allowedHeaders)(r)
+	return webui.SecurityMiddleware(r)
 }
 
 // correctMIME 修正静态文件的 MIME 类型，解决 Windows 下 .css 被识别为 text/plain 的问题
@@ -225,8 +249,8 @@ func correctMIME(next http.Handler) http.Handler {
 
 type contentTypeFixer struct {
 	http.ResponseWriter
-	correctType   string
-	headerFixed   bool
+	correctType string
+	headerFixed bool
 }
 
 func (c *contentTypeFixer) WriteHeader(code int) {
