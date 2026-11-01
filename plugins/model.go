@@ -5,10 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"path/filepath"
 	"regexp"
 	"shizukubot/events"
-	"strings"
 )
 
 const APIVersion = 1
@@ -26,7 +24,6 @@ type Manifest struct {
 	Version      string   `json:"version"`
 	Description  string   `json:"description,omitempty"`
 	Author       string   `json:"author,omitempty"`
-	Entry        string   `json:"entry"`
 	Runtime      string   `json:"runtime"`
 	Permissions  []string `json:"permissions"`
 	ConfigSchema Schema   `json:"config_schema"`
@@ -36,11 +33,8 @@ func (m Manifest) Validate() error {
 	if m.APIVersion != APIVersion || !ValidID(m.ID) || m.Name == "" || !versionPattern.MatchString(m.Version) {
 		return errors.New("invalid manifest identity or API version")
 	}
-	if m.Runtime != "javascript" && m.Runtime != "go" {
-		return errors.New("unsupported runtime")
-	}
-	if m.Runtime == "javascript" && (!filepath.IsLocal(m.Entry) || strings.Contains(m.Entry, "\\") || !strings.HasSuffix(m.Entry, ".js")) {
-		return errors.New("entry must be a local built JavaScript file")
+	if m.Runtime != "go" {
+		return errors.New("only compiled Go plugins are supported")
 	}
 	if m.ConfigSchema.Type != "" && m.ConfigSchema.Type != "object" {
 		return errors.New("config schema root must be object")
@@ -54,6 +48,9 @@ func (m Manifest) Validate() error {
 		default:
 			return errors.New("unknown permission: " + p)
 		}
+	}
+	if _, err := json.Marshal(m); err != nil {
+		return errors.New("manifest must contain JSON-compatible values")
 	}
 	return nil
 }
@@ -85,6 +82,10 @@ type State interface {
 type Host interface {
 	// Context remains live until Disable/Unload; use it for background resources.
 	Context() context.Context
+	BotID() string
+	Config() map[string]any
+	State() State
+	Log(string)
 	Command(string, func(context.Context, Call) error) error
 	On(events.Type, func(context.Context, Call) error) error
 }
@@ -104,10 +105,25 @@ type Registration struct {
 	Events   []events.Type `json:"events"`
 }
 
-// Runtime is implemented by a Go extension instance or an out-of-process worker.
-type Runtime interface {
-	Start(context.Context) (Registration, error)
-	Handle(context.Context, Call) error
-	Stop(context.Context) error
+// Base supplies no-op lifecycle hooks for plugins that only register callbacks.
+// Embed Base and override the hooks your plugin needs.
+type Base struct{}
+
+func (Base) Load(context.Context, Host) error        { return nil }
+func (Base) Start(context.Context) error             { return nil }
+func (Base) HandleEvent(context.Context, Call) error { return nil }
+func (Base) Stop(context.Context) error              { return nil }
+func (Base) Unload(context.Context) error            { return nil }
+
+// Reply sends through the host-provided capability (capture-only in the sandbox).
+func (c Call) Reply(ctx context.Context, text string) error {
+	return c.Send(ctx, events.Reply{Kind: "text", Text: text})
 }
-type Factory func(Manifest, string, map[string]any, State) (Runtime, error)
+
+// Send supports text and rich-media replies without exposing a QQ client.
+func (c Call) Send(ctx context.Context, reply events.Reply) error {
+	if c.Event.Reply == nil {
+		return errors.New("reply capability unavailable")
+	}
+	return c.Event.Reply(ctx, reply)
+}

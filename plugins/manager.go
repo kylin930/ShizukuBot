@@ -15,7 +15,6 @@ import (
 // Settings are explicit per-Bot activation and user-controlled configuration.
 type Settings struct {
 	Enabled bool           `json:"enabled"`
-	Trusted bool           `json:"trusted"`
 	Config  map[string]any `json:"config"`
 }
 type Status struct {
@@ -30,33 +29,26 @@ type slot struct {
 	mu           sync.Mutex
 	status       Status
 	manifest     Manifest
-	runtime      Runtime
+	runtime      *Native
 	registration Registration
 	config       map[string]any
 	state        State
 	cancel       context.CancelFunc
 	life         context.Context
 	off          func()
-	failures     int
-	retry        time.Time
 }
 
 // Manager routes events through independent plugin/Bot instances. No process-global plugin state.
 type Manager struct {
 	// Skip is a pure host policy, set before enabling instances.
-	Skip    func(events.Event) bool
-	Store   *Store
-	Bus     *events.Bus
-	Node    string
-	Timeout time.Duration
-	Log     func(string, string, string)
-	root    string
-	mu      sync.RWMutex
-	slots   map[string]*slot
-	native  map[string]struct {
-		m       Manifest
-		factory Factory
-	}
+	Skip       func(events.Event) bool
+	Bus        *events.Bus
+	Timeout    time.Duration
+	Log        func(string, string, string)
+	root       string
+	mu         sync.RWMutex
+	slots      map[string]*slot
+	registry   map[string]Definition
 	settingsMu sync.Mutex
 	settings   map[string]map[string]Settings
 	closed     bool
@@ -66,13 +58,16 @@ type Manager struct {
 	debugSlots chan struct{}
 }
 
-func NewManager(store *Store, bus *events.Bus, dataRoot string) (*Manager, error) {
+// NewManager snapshots a registry; later registration cannot change a running catalog.
+func NewManager(registry *Registry, bus *events.Bus, dataRoot string) (*Manager, error) {
+	if registry == nil || bus == nil {
+		return nil, errors.New("registry and event bus required")
+	}
 	life, cancel := context.WithCancel(context.Background())
-	m := &Manager{life: life, cancel: cancel, Store: store, Bus: bus, Timeout: 2 * time.Second, root: dataRoot, slots: map[string]*slot{}, settings: map[string]map[string]Settings{}, debugSlots: make(chan struct{}, 4), native: map[string]struct {
-		m       Manifest
-		factory Factory
-	}{}}
+	m := &Manager{life: life, cancel: cancel, Bus: bus, Timeout: 2 * time.Second, root: dataRoot,
+		slots: map[string]*slot{}, settings: map[string]map[string]Settings{}, debugSlots: make(chan struct{}, 4), registry: registry.snapshot()}
 	if err := os.MkdirAll(dataRoot, 0700); err != nil {
+		cancel()
 		return nil, err
 	}
 	b, err := os.ReadFile(filepath.Join(dataRoot, "settings.json"))
@@ -80,6 +75,7 @@ func NewManager(store *Store, bus *events.Bus, dataRoot string) (*Manager, error
 		err = json.Unmarshal(b, &m.settings)
 	}
 	if err != nil && !os.IsNotExist(err) {
+		cancel()
 		return nil, err
 	}
 	return m, nil
@@ -104,15 +100,15 @@ func acquire(ctx context.Context, s *slot) error {
 	}
 }
 func release(s *slot) { <-s.gate }
-func (m *Manager) Enable(ctx context.Context, id, bot string, trust bool) error {
+func (m *Manager) Enable(ctx context.Context, id, bot string) error {
+	if bot == "" || len(bot) > 256 {
+		return errors.New("invalid bot id")
+	}
 	mf, factory, err := m.manifest(id)
 	if err != nil {
 		return err
 	}
 	settings := m.Config(id, bot)
-	if !trust && !settings.Trusted {
-		return errors.New("explicit trust required before executing plugin code")
-	}
 	cfg, err := mf.ConfigSchema.Validate(settings.Config)
 	if err != nil {
 		return err
@@ -146,11 +142,11 @@ func (m *Manager) Enable(ctx context.Context, id, bot string, trust bool) error 
 		cancel()
 		return err
 	}
-	if err = m.saveSettings(id, bot, func(v *Settings) { v.Enabled = true; v.Trusted = true; v.Config = s.config }); err != nil {
+	if err = m.saveSettings(id, bot, func(v *Settings) { v.Enabled = true; v.Config = s.config }); err != nil {
 		cancel()
 		stopCtx, stopCancel := context.WithTimeout(context.Background(), time.Second)
 		defer stopCancel()
-		_ = s.runtime.Stop(stopCtx)
+		err = errors.Join(err, s.runtime.Stop(stopCtx))
 		s.runtime = nil
 		return err
 	}
@@ -171,31 +167,40 @@ func (m *Manager) Enable(ctx context.Context, id, bot string, trust bool) error 
 				return nil
 			}
 		}
-		return m.dispatch(ctx, s, e, factory)
+		return m.dispatch(ctx, s, e)
 	})
 	s.mu.Unlock()
 	return nil
 }
-func (m *Manager) start(ctx context.Context, s *slot, f Factory) error {
+func (m *Manager) start(ctx context.Context, s *slot, create func() Extension) error {
 	cfg := map[string]any{}
 	if s.manifest.Allows("config.read") {
 		cfg = copyMap(s.config)
 	}
-	var runtime Runtime
-	err := safe(func() error { var err error; runtime, err = f(s.manifest, s.status.BotID, cfg, s.state); return err })
-	if err == nil && runtime == nil {
-		err = errors.New("factory returned no runtime")
+	var extension Extension
+	err := safe(func() error { extension = create(); return nil })
+	if err == nil && extension == nil {
+		err = errors.New("factory returned no extension")
 	}
 	if err != nil {
+		m.failed(s, err)
 		return err
 	}
-	if native, ok := runtime.(*Native); ok {
-		native.Life = s.life
-	}
+	runtime := &Native{Extension: extension, Life: s.life, bot: s.status.BotID, config: cfg,
+		state: &permissionState{manifest: s.manifest, inner: s.state}, log: func(message string) {
+			if s.manifest.Allows("log.write") && m.Log != nil {
+				m.Log(s.status.BotID, s.manifest.ID, message)
+			}
+		}}
 	startCtx, cancel := context.WithTimeout(ctx, m.Timeout)
+	after := context.AfterFunc(s.life, cancel)
+	defer after()
 	defer cancel()
 	var reg Registration
 	err = safe(func() error { var err error; reg, err = runtime.Start(startCtx); return err })
+	if err == nil {
+		err = startCtx.Err()
+	}
 	if err == nil {
 		if len(reg.Commands) > 128 || len(reg.Events) > 128 {
 			err = errors.New("too many registrations")
@@ -213,7 +218,8 @@ func (m *Manager) start(ctx context.Context, s *slot, f Factory) error {
 	}
 	if err != nil {
 		stopCtx, stopCancel := context.WithTimeout(context.Background(), time.Second)
-		_ = runtime.Stop(stopCtx)
+		s.cancelLife()
+		err = errors.Join(err, runtime.Stop(stopCtx))
 		stopCancel()
 		m.failed(s, err)
 		return err
@@ -227,14 +233,8 @@ func (m *Manager) start(ctx context.Context, s *slot, f Factory) error {
 	return nil
 }
 func (m *Manager) failed(s *slot, err error) {
-	s.failures++
-	delay := time.Duration(s.failures) * 100 * time.Millisecond
-	if delay > time.Second {
-		delay = time.Second
-	}
-	s.retry = time.Now().Add(delay)
 	s.mu.Lock()
-	s.status.State = "failed"
+	s.status.State = "error"
 	s.status.LastError = err.Error()
 	if len(s.status.LastError) > 4096 {
 		s.status.LastError = s.status.LastError[:4096]
@@ -260,7 +260,7 @@ func matches(reg Registration, e events.Event) bool {
 	}
 	return false
 }
-func (m *Manager) dispatch(ctx context.Context, s *slot, e events.Event, f Factory) error {
+func (m *Manager) dispatch(ctx context.Context, s *slot, e events.Event) error {
 	if err := acquire(ctx, s); err != nil {
 		return err
 	}
@@ -273,45 +273,33 @@ func (m *Manager) dispatch(ctx context.Context, s *slot, e events.Event, f Facto
 	defer stop()
 	defer cancel()
 	if s.runtime == nil {
-		if time.Now().Before(s.retry) {
-			return errors.New("worker restart backoff")
-		}
-		if err := m.start(callCtx, s, f); err != nil {
-			return err
-		}
+		return errors.New("plugin not running")
 	}
 	if !matches(s.registration, e) {
 		return nil
 	}
-	c := Call{Event: e, Config: map[string]any{}, State: &permissionState{manifest: s.manifest, inner: s.state}}
-	if s.manifest.Allows("config.read") {
-		c.Config = copyMap(s.config)
-	}
-	original := e.Reply
-	c.Event.Reply = func(ctx context.Context, r events.Reply) error {
-		if !s.manifest.Allows("message.send") || original == nil {
-			return errors.New("message.send denied")
-		}
-		return original(ctx, r)
-	}
-	c.Log = func(text string) {
-		if s.manifest.Allows("log.write") && m.Log != nil {
-			m.Log(e.BotID, s.manifest.ID, text)
-		}
-	}
+	c := m.call(s, e)
 	err := safe(func() error { return s.runtime.Handle(callCtx, c) })
+	if err == nil {
+		err = callCtx.Err()
+	}
 	if err != nil {
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), time.Second)
-		_ = s.runtime.Stop(stopCtx)
-		stopCancel()
-		s.runtime = nil
 		m.failed(s, err)
 	} else {
-		s.failures = 0
+		s.mu.Lock()
+		s.status.State = "running"
+		s.status.LastError = ""
+		s.mu.Unlock()
 	}
 	return err
 }
 func (m *Manager) Disable(ctx context.Context, id, bot string) error {
+	if _, _, err := m.manifest(id); err != nil {
+		return err
+	}
+	if bot == "" || len(bot) > 256 {
+		return errors.New("invalid bot id")
+	}
 	s := m.getSlot(id, bot)
 	s.mu.Lock()
 	off, cancel := s.off, s.cancel
@@ -351,7 +339,7 @@ func (m *Manager) Restart(ctx context.Context, id, bot string) error {
 	if err := m.Disable(ctx, id, bot); err != nil {
 		return err
 	}
-	return m.Enable(ctx, id, bot, false)
+	return m.Enable(ctx, id, bot)
 }
 func (m *Manager) Statuses() []Status {
 	m.mu.RLock()
@@ -370,7 +358,7 @@ func (m *Manager) Statuses() []Status {
 	return out
 }
 
-// Restore only starts explicitly trusted persisted instances for currently configured bots.
+// Restore only starts explicitly enabled compiled instances for currently configured bots.
 func (m *Manager) Restore(ctx context.Context, bots []string) error {
 	var errs []error
 	packages, err := m.Packages()
@@ -380,8 +368,8 @@ func (m *Manager) Restore(ctx context.Context, bots []string) error {
 	for _, p := range packages {
 		for _, bot := range bots {
 			s := m.Config(p.Manifest.ID, bot)
-			if s.Enabled && s.Trusted {
-				errs = append(errs, m.Enable(ctx, p.Manifest.ID, bot, false))
+			if s.Enabled {
+				errs = append(errs, m.Enable(ctx, p.Manifest.ID, bot))
 			}
 		}
 	}
@@ -459,4 +447,30 @@ func (m *Manager) Commands(ids []string, bot string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// call binds per-Bot data and reply capabilities identically for live and debug events.
+func (m *Manager) call(s *slot, e events.Event) Call {
+	c := Call{Event: e, Config: map[string]any{}, State: &permissionState{manifest: s.manifest, inner: s.state}}
+	if s.manifest.Allows("config.read") {
+		c.Config = copyMap(s.config)
+	}
+	original := e.Reply
+	c.Event.Reply = func(ctx context.Context, r events.Reply) error {
+		if !s.manifest.Allows("message.send") || original == nil {
+			return errors.New("message.send denied")
+		}
+		return original(ctx, r)
+	}
+	c.Log = func(text string) {
+		if s.manifest.Allows("log.write") && m.Log != nil {
+			m.Log(e.BotID, s.manifest.ID, text)
+		}
+	}
+	return c
+}
+func (s *slot) cancelLife() {
+	if s.cancel != nil {
+		s.cancel()
+	}
 }

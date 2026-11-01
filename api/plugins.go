@@ -2,9 +2,9 @@ package api
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"github.com/gorilla/mux"
+	"io"
 	"net/http"
 	"shizukubot/plugins"
 	"time"
@@ -15,7 +15,6 @@ type PluginInfo struct {
 	Enabled   bool             `json:"enabled"`
 	Instances []plugins.Status `json:"instances"`
 	Config    map[string]any   `json:"config,omitempty"`
-	Trusted   bool             `json:"trusted"`
 }
 
 func (r *Router) pluginInfo(p plugins.Package, bot string) PluginInfo {
@@ -29,7 +28,6 @@ func (r *Router) pluginInfo(p plugins.Package, bot string) PluginInfo {
 	if bot != "" {
 		settings := r.plugins.Config(p.Manifest.ID, bot)
 		out.Config = settings.Config
-		out.Trusted = settings.Trusted
 		out.Enabled = settings.Enabled
 	}
 	return out
@@ -61,33 +59,28 @@ func (r *Router) GetPlugin(w http.ResponseWriter, req *http.Request) {
 	}
 	NotFoundResponse(w, "plugin not found")
 }
+
+// CreatePlugin explicitly retires runtime source uploads.
 func (r *Router) CreatePlugin(w http.ResponseWriter, req *http.Request) {
-	var body struct {
-		Package     string `json:"package_base64"`
-		RestoreData bool   `json:"restore_data"`
-	}
-	if json.NewDecoder(req.Body).Decode(&body) != nil {
-		BadRequestResponse(w, "invalid package request")
+	http.Error(w, "Plugins are compiled Go packages; register, rebuild and redeploy to add code.", http.StatusGone)
+}
+func (r *Router) RestorePluginData(w http.ResponseWriter, req *http.Request) {
+	data, err := io.ReadAll(io.LimitReader(req.Body, (4<<20)+1))
+	if err != nil || len(data) > 4<<20 {
+		BadRequestResponse(w, "invalid data backup")
 		return
 	}
-	data, err := base64.StdEncoding.DecodeString(body.Package)
-	if err != nil {
-		BadRequestResponse(w, "invalid package encoding")
+	if err = r.plugins.RestoreBackup(data); err != nil {
+		BadRequestResponse(w, err.Error())
 		return
 	}
-	p, err := r.plugins.InstallPackage(data, body.RestoreData)
-	if err != nil {
-		BadRequestResponse(w, "package rejected: "+err.Error())
-		return
-	}
-	SuccessResponse(w, r.pluginInfo(p, ""))
+	SuccessResponse(w, map[string]bool{"enabled": false})
 }
 func (r *Router) UpdatePlugin(w http.ResponseWriter, req *http.Request) {
 	id := mux.Vars(req)["id"]
 	var body struct {
-		BotID   string         `json:"bot_id"`
-		Config  map[string]any `json:"config"`
-		Trusted *bool          `json:"trusted"`
+		BotID  string         `json:"bot_id"`
+		Config map[string]any `json:"config"`
 	}
 	if json.NewDecoder(req.Body).Decode(&body) != nil || body.BotID == "" {
 		BadRequestResponse(w, "bot_id required")
@@ -99,20 +92,6 @@ func (r *Router) UpdatePlugin(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 	}
-	if body.Trusted != nil {
-		if !*body.Trusted {
-			ctx, cancel := context.WithTimeout(req.Context(), 3*time.Second)
-			defer cancel()
-			if err := r.plugins.Disable(ctx, id, body.BotID); err != nil {
-				InternalErrorResponse(w, "disable failed")
-				return
-			}
-		}
-		if err := r.plugins.Trust(id, body.BotID, *body.Trusted); err != nil {
-			BadRequestResponse(w, err.Error())
-			return
-		}
-	}
 	SuccessResponse(w, map[string]any{"restart_required": true})
 }
 func (r *Router) TogglePlugin(w http.ResponseWriter, req *http.Request) {
@@ -120,7 +99,6 @@ func (r *Router) TogglePlugin(w http.ResponseWriter, req *http.Request) {
 	var body struct {
 		BotID   string `json:"bot_id"`
 		Enabled bool   `json:"enabled"`
-		Trust   bool   `json:"trust"`
 	}
 	if json.NewDecoder(req.Body).Decode(&body) != nil || body.BotID == "" {
 		BadRequestResponse(w, "bot_id required")
@@ -130,7 +108,7 @@ func (r *Router) TogglePlugin(w http.ResponseWriter, req *http.Request) {
 	defer cancel()
 	var err error
 	if body.Enabled {
-		err = r.plugins.Enable(ctx, id, body.BotID, body.Trust)
+		err = r.plugins.Enable(ctx, id, body.BotID)
 	} else {
 		err = r.plugins.Disable(ctx, id, body.BotID)
 	}
@@ -157,29 +135,17 @@ func (r *Router) RestartPlugin(w http.ResponseWriter, req *http.Request) {
 	SuccessResponse(w, nil)
 }
 func (r *Router) DeletePlugin(w http.ResponseWriter, req *http.Request) {
-	ctx, cancel := context.WithTimeout(req.Context(), 4*time.Second)
-	defer cancel()
-	if err := r.plugins.Remove(ctx, mux.Vars(req)["id"]); err != nil {
-		BadRequestResponse(w, "plugin removal failed")
-		return
-	}
-	SuccessResponse(w, nil)
+	http.Error(w, "Compiled plugins can be disabled; removing code requires rebuilding and redeploying.", http.StatusGone)
 }
 func (r *Router) ExportPlugin(w http.ResponseWriter, req *http.Request) {
 	id := mux.Vars(req)["id"]
-	var data []byte
-	var err error
-	if req.URL.Query().Get("backup") == "1" {
-		data, err = r.plugins.ExportBackup(id)
-	} else {
-		data, err = r.plugins.Store.Export(id)
-	}
+	data, err := r.plugins.ExportBackup(id)
 	if err != nil {
-		BadRequestResponse(w, "package export failed")
+		BadRequestResponse(w, "data backup failed")
 		return
 	}
-	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+id+`.zip"`)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+id+`-data.json"`)
 	w.Write(data)
 }
 func (r *Router) Close(ctx context.Context) error { return r.plugins.Close(ctx) }

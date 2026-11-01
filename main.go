@@ -139,12 +139,13 @@ func main() {
 
 func migrateCLI(args []string) error {
 	flags := flag.NewFlagSet("migrate-legacy", flag.ContinueOnError)
-	apply := flags.Bool("apply", false, "back up and generate disabled code plugins")
+	apply := flags.Bool("apply", false, "back up and generate unregistered Go source")
 	dry := flags.Bool("dry-run", false, "detect only; default")
 	rollback := flags.String("rollback", "", "rollback an unmodified migration backup (stop host first)")
 	source := flags.String("source", "data/plugins", "legacy directory")
 	custom := flags.String("custom-nodes", "data/custom_nodes", "legacy custom node directory")
-	destination := flags.String("destination", "data/code-plugins", "new plugin directory")
+	scripts := flags.String("script-source", "data/code-plugins", "retired script projects to back up and report for manual Go rewrite")
+	destination := flags.String("destination", "plugins/migrated", "new plugin directory")
 	backups := flags.String("backups", "data/legacy-backups", "verified backup directory")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -155,7 +156,7 @@ func migrateCLI(args []string) error {
 	if *rollback != "" {
 		return migration.Rollback(*rollback, *destination)
 	}
-	report, err := migration.Run(migration.Options{Source: *source, CustomNodes: *custom, Destination: *destination, Backups: *backups, Apply: *apply})
+	report, err := migration.Run(migration.Options{Source: *source, CustomNodes: *custom, ScriptSource: *scripts, Destination: *destination, Backups: *backups, Apply: *apply})
 	if err != nil {
 		return err
 	}

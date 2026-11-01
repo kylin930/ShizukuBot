@@ -1,13 +1,12 @@
 package migration
 
 import (
-	"archive/zip"
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -18,8 +17,8 @@ import (
 )
 
 type Options struct {
-	Source, CustomNodes, Destination, Backups string
-	Apply                                     bool
+	Source, CustomNodes, ScriptSource, Destination, Backups string
+	Apply                                                   bool
 }
 type Item struct {
 	File          string   `json:"file"`
@@ -32,16 +31,27 @@ type Item struct {
 	Capabilities  []string `json:"capabilities"`
 	GeneratedHash string   `json:"generated_hash,omitempty"`
 }
+
+// ScriptItem inventories retired script projects; no code is executed or translated.
+type ScriptItem struct {
+	Directory string `json:"directory"`
+	Status    string `json:"status"`
+	Reason    string `json:"reason"`
+}
 type Report struct {
-	Version     int    `json:"version"`
-	Backup      string `json:"backup,omitempty"`
-	Destination string `json:"destination"`
-	Items       []Item `json:"items"`
+	Version     int          `json:"version"`
+	Backup      string       `json:"backup,omitempty"`
+	Destination string       `json:"destination"`
+	Items       []Item       `json:"items"`
+	Scripts     []ScriptItem `json:"scripts"`
 }
 
 func digest(b []byte) string { sum := sha256.Sum256(b); return hex.EncodeToString(sum[:]) }
 func snapshot(root string) (map[string][]byte, error) {
 	out := map[string][]byte{}
+	if root == "" {
+		return out, nil
+	}
 	if _, err := os.Stat(root); os.IsNotExist(err) {
 		return out, nil
 	}
@@ -61,8 +71,13 @@ func snapshot(root string) (map[string][]byte, error) {
 		if !e.Type().IsRegular() {
 			return errors.New("backup refuses symlinks or special files")
 		}
-		b, err := r.ReadFile(name)
+		f, err := r.Open(name)
 		if err != nil {
+			return err
+		}
+		b, readErr := io.ReadAll(io.LimitReader(f, int64((64<<20)-total+1)))
+		closeErr := f.Close()
+		if err = errors.Join(readErr, closeErr); err != nil {
 			return err
 		}
 		total += len(b)
@@ -75,7 +90,7 @@ func snapshot(root string) (map[string][]byte, error) {
 	return out, err
 }
 
-// Run never changes original files. Apply backs up exact bytes before installing disabled code.
+// Run never changes original files. Apply backs up exact bytes before generating unregistered Go source.
 func Run(o Options) (Report, error) {
 	dest, err := filepath.Abs(o.Destination)
 	report := Report{Version: 1, Destination: dest, Items: []Item{}}
@@ -90,6 +105,23 @@ func Run(o Options) (Report, error) {
 	if err != nil {
 		return report, err
 	}
+	scripts, err := snapshot(o.ScriptSource)
+	if err != nil {
+		return report, err
+	}
+	directories := map[string]bool{}
+	for name := range scripts {
+		directory, _, ok := strings.Cut(name, "/")
+		if !ok {
+			directory = "."
+		}
+		directories[directory] = true
+	}
+	report.Scripts = []ScriptItem{}
+	for directory := range directories {
+		report.Scripts = append(report.Scripts, ScriptItem{Directory: directory, Status: "manual-go-rewrite", Reason: "Retired script project preserved verbatim; review and rewrite as a compiled Go package."})
+	}
+	sort.Slice(report.Scripts, func(i, j int) bool { return report.Scripts[i].Directory < report.Scripts[j].Directory })
 	names := []string{}
 	for name := range source {
 		if filepath.Ext(name) == ".json" && !strings.Contains(name, "/") {
@@ -114,7 +146,7 @@ func Run(o Options) (Report, error) {
 		item.ID = old.ID
 		item.BotID = old.BotID
 		item.NewID = old.ID
-		if !plugins.ValidID(item.NewID) || strings.HasPrefix(item.NewID, "builtin-") {
+		if !plugins.ValidID(item.NewID) || strings.HasPrefix(item.NewID, "builtin-") || item.NewID == "hello" || item.NewID == "autoreply" || item.NewID == "counter" {
 			item.NewID = "legacy-" + item.SHA256[:16]
 		}
 		mf, code, caps, err := convert(old, item.NewID)
@@ -187,7 +219,7 @@ func Run(o Options) (Report, error) {
 	}
 	report.Backup = backup
 	sums := map[string]string{}
-	for prefix, files := range map[string]map[string][]byte{"plugins": source, "custom_nodes": custom} {
+	for prefix, files := range map[string]map[string][]byte{"plugins": source, "custom_nodes": custom, "script_plugins": scripts} {
 		for name, b := range files {
 			file := filepath.Join(backup, prefix, filepath.FromSlash(name))
 			if err = os.MkdirAll(filepath.Dir(file), 0700); err != nil {
@@ -209,8 +241,7 @@ func Run(o Options) (Report, error) {
 	if err = plugins.AtomicJSON(filepath.Join(backup, "report.json"), report); err != nil {
 		return report, err
 	}
-	store, err := plugins.NewStore(dest)
-	if err != nil {
+	if err = os.MkdirAll(dest, 0700); err != nil {
 		return report, err
 	}
 	for i, item := range report.Items {
@@ -220,34 +251,38 @@ func Run(o Options) (Report, error) {
 		out := outputs[item.File]
 		manifest, _ := json.MarshalIndent(out.manifest, "", "  ")
 		info, _ := json.Marshal(map[string]string{"source_sha256": item.SHA256, "source_bot_id": item.BotID, "backup_id": filepath.Base(backup)})
-		var buf bytes.Buffer
-		z := zip.NewWriter(&buf)
-		for name, b := range map[string][]byte{"manifest.json": manifest, "dist/index.js": []byte(out.code), "src/index.js": []byte(out.code), "migration.json": info} {
-			w, err := z.Create(name)
-			if err != nil {
-				return report, err
-			}
-			if _, err = w.Write(b); err != nil {
-				return report, err
-			}
-		}
-		if err = z.Close(); err != nil {
-			return report, err
-		}
-		expected := map[string][]byte{"manifest.json": manifest, "dist/index.js": []byte(out.code), "src/index.js": []byte(out.code), "migration.json": info, "package.json": []byte(`{"type":"module"}`)}
+		expected := map[string][]byte{"manifest.json": manifest, "plugin.go": []byte(out.code), "migration.json": info,
+			"README.md": []byte("Generated Go source, not installed or enabled. Review plugin.go, place this package under plugins/migrated/, run go generate ./pluginregistry, build and redeploy, then enable per Bot in WebUI. Original data remains in the verified backup.\n")}
 		report.Items[i].Status = "conversion-pending"
 		report.Items[i].GeneratedHash = treeHash(expected)
 		if err = plugins.AtomicJSON(filepath.Join(backup, "report.json"), report); err != nil {
 			return report, err
 		}
-		if _, err = store.Install(buf.Bytes()); err != nil {
+		staging, err := os.MkdirTemp(dest, ".migration-")
+		if err != nil {
+			return report, err
+		}
+		writeErr := func() error {
+			for name, data := range expected {
+				if err := os.WriteFile(filepath.Join(staging, name), data, 0600); err != nil {
+					return err
+				}
+			}
+			// No overwrites, even if another tool created a destination after analysis.
+			if _, err := os.Lstat(filepath.Join(dest, item.NewID)); !os.IsNotExist(err) {
+				return errors.New("destination appeared during migration")
+			}
+			return os.Rename(staging, filepath.Join(dest, item.NewID))
+		}()
+		cleanupErr := os.RemoveAll(staging)
+		if err = errors.Join(writeErr, cleanupErr); err != nil {
 			return report, err
 		}
 		tree, err := snapshot(filepath.Join(dest, item.NewID))
 		if err != nil {
 			return report, err
 		}
-		report.Items[i].Status = "converted-disabled"
+		report.Items[i].Status = "generated-go-source"
 		report.Items[i].GeneratedHash = treeHash(tree)
 		if err = plugins.AtomicJSON(filepath.Join(backup, "report.json"), report); err != nil {
 			return report, err
@@ -269,7 +304,8 @@ func treeHash(files map[string][]byte) string {
 }
 
 // Rollback removes only unmodified generated projects; originals have never been altered.
-// Stop the bot host first so no worker is running a package being removed.
+// After rollback regenerate the registry and rebuild before deploying again.
+// Reports from historical migrations remain readable; existing generated data is preserved.
 func Rollback(backup, destination string) error {
 	data, err := os.ReadFile(filepath.Join(backup, "report.json"))
 	if err != nil {
@@ -290,7 +326,7 @@ func Rollback(backup, destination string) error {
 		return errors.New("invalid destination")
 	}
 	for _, item := range report.Items {
-		if item.Status != "converted-disabled" && item.Status != "conversion-pending" {
+		if item.Status != "generated-go-source" && item.Status != "converted-disabled" && item.Status != "conversion-pending" {
 			continue
 		}
 		if !plugins.ValidID(item.NewID) {
@@ -316,7 +352,7 @@ func Rollback(backup, destination string) error {
 		}
 	}
 	for _, item := range report.Items {
-		if item.Status == "converted-disabled" || item.Status == "conversion-pending" {
+		if item.Status == "generated-go-source" || item.Status == "converted-disabled" || item.Status == "conversion-pending" {
 			if err = os.RemoveAll(filepath.Join(report.Destination, item.NewID)); err != nil {
 				return err
 			}

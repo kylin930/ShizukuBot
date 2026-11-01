@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/format"
 	"shizukubot/plugins"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -89,7 +91,7 @@ func capabilities(nodes []node) []string {
 
 // convert accepts only a fully accounted-for linear trigger / optional condition / literal reply.
 func convert(old legacy, id string) (plugins.Manifest, string, []string, error) {
-	mf := plugins.Manifest{APIVersion: 1, ID: id, Name: old.Name, Description: old.Description, Version: "1.0.0", Runtime: "javascript", Entry: "dist/index.js", Permissions: []string{"events.subscribe", "message.send"}, ConfigSchema: plugins.Schema{Type: "object"}}
+	mf := plugins.Manifest{APIVersion: 1, ID: id, Name: old.Name, Description: old.Description, Version: "1.0.0", Runtime: "go", Permissions: []string{"events.subscribe", "message.send"}, ConfigSchema: plugins.Schema{Type: "object"}}
 	if mf.Name == "" {
 		mf.Name = id
 	}
@@ -205,7 +207,7 @@ func convert(old legacy, id string) (plugins.Manifest, string, []string, error) 
 			prefix = "/"
 		}
 		command, _ := event.Properties["command"].(string)
-		predicate = "legacyCommand(ctx," + jsQuote(prefix) + "," + jsQuote(command) + ")"
+		predicate = "legacyCommand(c," + strconv.Quote(prefix) + "," + strconv.Quote(command) + ")"
 	}
 	if condition.Type != "" {
 		key := "expected"
@@ -216,21 +218,46 @@ func convert(old legacy, id string) (plugins.Manifest, string, []string, error) 
 		if !ok {
 			return mf, "", caps, errors.New("condition value must be a literal string")
 		}
-		test := "ctx.message === " + jsQuote(value)
+		test := "c.Event.Message == " + strconv.Quote(value)
 		if condition.Type == "condition/text_contains" {
-			test = fmt.Sprintf("%t && ctx.message.includes(%s)", value != "", jsQuote(value))
+			test = fmt.Sprintf("%t && strings.Contains(c.Event.Message,%s)", value != "", strconv.Quote(value))
 		}
 		predicate = "(" + predicate + ") && (" + test + ")"
 	}
-	// Commands historically stripped bot mentions and used whitespace tokenization,
-	// not shell argument parsing. Keep that matcher inside generated ordinary code.
-	helper := `function legacyCommand(ctx,prefix,name){let text=ctx.message;const ids=ctx.botMentionIds??[];if(ids.length){for(const id of ids){text=text.split('<@'+id+'>').join('').split('<@!'+id+'>').join('');}}else{text=text.replace(/<@!?[0-9A-Fa-f]+>/g,'');}text=text.replace(/^[ \u00a0]+|[ \u00a0]+$/g,'');if(!text.startsWith(prefix))return false;const parts=text.slice(prefix.length).replace(/^\p{White_Space}+|\p{White_Space}+$/gu,'').split(/\p{White_Space}+/u);return name==='' || (parts[0]!=='' && parts[0]===name);}`
-	entries := []string{}
+	// Preserve the old literal-prefix and whitespace command matcher.
+	helper := `func legacyCommand(c sdk.Call,prefix,name string)bool {
+        text:=sdk.CommandText(c.Event)
+        if !strings.HasPrefix(text,prefix){return false}
+        fields:=strings.Fields(strings.TrimPrefix(text,prefix))
+        return name=="" || len(fields)>0 && fields[0]==name
+    }`
+	registrations := []string{}
 	for _, typ := range types {
-		entries = append(entries, jsQuote(typ)+":respond")
+		registrations = append(registrations, fmt.Sprintf("if err:=h.On(events.Type(%q),respond);err!=nil{return err}", typ))
 	}
-	code := fmt.Sprintf("// Generated from an audited linear legacy reply; review before trusting.\n%s\nasync function respond(ctx){if(%s && (ctx.groupId || ctx.userId))await ctx.reply(%s);}\nexport default {id:%s,version:'1.0.0',events:{%s}};\n", helper, predicate, jsQuote(text), jsQuote(id), strings.Join(entries, ","))
-	return mf, code, caps, nil
+	manifestJSON, err := json.Marshal(mf)
+	if err != nil {
+		return mf, "", caps, err
+	}
+	code := fmt.Sprintf(`// Generated from a proven linear legacy reply. Review before registering and building.
+package migrated
+import("context";"encoding/json";"strings";"shizukubot/events";sdk "shizukubot/plugins")
+type plugin struct{sdk.Base}
+func Definition()sdk.Definition{
+ var manifest sdk.Manifest
+ if err:=json.Unmarshal([]byte(%s),&manifest);err!=nil{panic(err)}
+ return sdk.Definition{Manifest:manifest,New:func()sdk.Extension{return &plugin{}}}
 }
-
-func jsQuote(value string) string { b, _ := json.Marshal(value); return string(b) }
+func(*plugin)Load(_ context.Context,h sdk.Host)error{%s;return nil}
+%s
+func respond(ctx context.Context,c sdk.Call)error{
+ if (%s) && (c.Event.GroupID!="" || c.Event.UserID!=""){return c.Reply(ctx,%s)}
+ return nil
+}
+`, strconv.Quote(string(manifestJSON)), strings.Join(registrations, ";"), helper, predicate, strconv.Quote(text))
+	formatted, err := format.Source([]byte(code))
+	if err != nil {
+		return mf, "", caps, err
+	}
+	return mf, string(formatted), caps, nil
+}

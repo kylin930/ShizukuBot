@@ -1,5 +1,6 @@
 # ShizukuBot v2 P0 交付报告
 
+> 历史 P0 报告：其中后续阶段的技术建议已由纯 Go 决策替代。当前架构与验证见 [P1 Go 纠偏报告](v2-p1-go-correction.md)。
 ## 基线和范围
 
 - 工作分支：`feat/v2-p0-core`。开始时工作区干净，原分支为 `work`；本地 HEAD 和远端 main 均为 `e86178d97724d72ec0e4e552f67de3fcedc7f238`，未覆盖 main。

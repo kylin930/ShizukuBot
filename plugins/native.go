@@ -12,6 +12,10 @@ import (
 // Native adapts a fresh compiled Go extension instance; never reuse it across bots.
 type Native struct {
 	Extension    Extension
+	bot          string
+	config       map[string]any
+	state        State
+	log          func(string)
 	Life         context.Context
 	mu           sync.Mutex
 	sealed       bool
@@ -63,8 +67,10 @@ func (n *Native) Start(ctx context.Context) (r Registration, err error) {
 	if err = safe(func() error { return n.Extension.Load(ctx, n) }); err == nil {
 		err = safe(func() error { return n.Extension.Start(ctx) })
 	}
+	if err == nil {
+		err = ctx.Err()
+	}
 	if err != nil {
-		_ = n.Stop(context.Background())
 		return r, err
 	}
 	n.mu.Lock()
@@ -74,6 +80,9 @@ func (n *Native) Start(ctx context.Context) (r Registration, err error) {
 	return r, nil
 }
 func (n *Native) Handle(ctx context.Context, c Call) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	n.mu.Lock()
 	commands := n.commands
 	listeners := n.listeners
@@ -91,7 +100,7 @@ func (n *Native) Handle(ctx context.Context, c Call) error {
 		}
 	}
 	errs = append(errs, safe(func() error { return n.Extension.HandleEvent(ctx, c) }))
-	return errors.Join(errs...)
+	return errors.Join(append(errs, ctx.Err())...)
 }
 func (n *Native) Stop(ctx context.Context) error {
 	n.mu.Lock()
@@ -177,4 +186,13 @@ func (n *Native) Context() context.Context {
 		return n.Life
 	}
 	return context.Background()
+}
+
+func (n *Native) BotID() string          { return n.bot }
+func (n *Native) Config() map[string]any { return copyMap(n.config) }
+func (n *Native) State() State           { return n.state }
+func (n *Native) Log(message string) {
+	if n.log != nil {
+		n.log(message)
+	}
 }

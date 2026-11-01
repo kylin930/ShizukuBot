@@ -17,6 +17,7 @@ import (
 
 	"shizukubot/config"
 	"shizukubot/core"
+	"shizukubot/pluginregistry"
 	"shizukubot/plugins"
 	"shizukubot/webhook"
 	"shizukubot/webui"
@@ -90,16 +91,18 @@ type Router struct {
 }
 
 func NewRouter(botManager *core.BotManager, cfg *config.Config, cfgPath string, logManager *core.LogManager) *Router {
-	store, err := plugins.NewStore("data/code-plugins")
+	registry, err := pluginregistry.New()
 	if err != nil {
-		panic("code plugin store initialization failed")
+		panic("compiled plugin registry initialization failed")
 	}
-	manager, err := plugins.NewManager(store, botManager.Events(), "data/plugin-data")
+	return NewRouterWithRegistry(botManager, cfg, cfgPath, logManager, registry)
+}
+
+// NewRouterWithRegistry supports embedded applications and isolated plugin tests.
+func NewRouterWithRegistry(botManager *core.BotManager, cfg *config.Config, cfgPath string, logManager *core.LogManager, registry *plugins.Registry) *Router {
+	manager, err := plugins.NewManager(registry, botManager.Events(), "data/plugin-data")
 	if err != nil {
 		panic("plugin settings initialization failed")
-	}
-	if err := plugins.RegisterBuiltins(manager); err != nil {
-		panic("compiled plugin registry initialization failed")
 	}
 	manager.Skip = func(e events.Event) bool { bot, ok := botManager.GetBot(e.BotID); return ok && bot.MatchesBuiltin(e) }
 	manager.Log = func(bot, id, msg string) { logManager.Error(bot, "plugin "+id+": "+msg) }
@@ -208,6 +211,7 @@ func (r *Router) registerRoutes() {
 	api.HandleFunc("/plugins/{id}/toggle", r.TogglePlugin).Methods(http.MethodPost)
 	api.HandleFunc("/plugins/{id}/restart", r.RestartPlugin).Methods(http.MethodPost)
 	api.HandleFunc("/plugins/{id}/export", r.ExportPlugin).Methods(http.MethodGet)
+	api.HandleFunc("/plugins/data/restore", r.RestorePluginData).Methods(http.MethodPost)
 
 	api.HandleFunc("/bots/{id}/sandbox/send", r.SandboxSend).Methods(http.MethodPost)
 	api.HandleFunc("/bots/{id}/sandbox/plugins", r.SandboxPlugins).Methods(http.MethodGet)

@@ -1,41 +1,51 @@
-# ShizukuBot v2 架构（P1）
+# ShizukuBot v2 架构：Go 原生 P1
 
-## 事件与能力边界
+## 生产事件链路
 
-QQ WebSocket gateway / 验签 Webhook → `transport/qq.Normalize` → `core.Bot.HandlePayload` → `events.Dispatcher`（按 Bot/平台身份去重）→ `events.Bus`。
+```mermaid
+flowchart LR
+    QQ[QQ WebSocket / 签名 Webhook] --> Adapter[transport/qq.Normalize]
+    Adapter --> Bot[core.Bot]
+    Bot --> Dispatcher[events.Dispatcher 去重]
+    Dispatcher --> Bus[events.Bus]
+    Bus --> Manager[plugins.Manager 按 Bot 订阅]
+    Registry[编译期 Registry] --> Manager
+    Manager --> Plugin[独立 Go 插件实例]
+    Plugin --> Reply[事件回复能力]
+```
 
-Bot 只负责连接、生命周期和消息能力。Bus 不依赖插件、SDK DTO 或编辑器。原图执行器、数据类型、解释执行和编辑器已删除；`migration/` 只在离线 CLI 中读取历史 JSON，生产没有旧引擎回退。
+Bot 管理连接、生命周期和消息能力。Bus、Dispatcher 和 Transport 不依赖插件、图模型或编辑器。P0 的来源规范化、按 Bot/消息身份去重、签名、gateway 取消/重连和管理安全保留。生产路径没有 LiteGraph、Yaegi、脚本宿主或动态代码加载。
 
-插件管理器为每个插件/Bot 创建独立实例，启动后向 Bus 注册一个 Bot 过滤订阅；禁用会取消生命周期、移除订阅、等待当前调用并停止实例。同名指令可属于不同插件，彼此不会覆盖。当前按订阅顺序广播，多插件响应同一普通指令是明确允许的行为。主机以纯路由策略保留核心内置命令优先级，避免旧简单回复迁移后重复响应内置命令；调试使用独立实例，不执行该生产消费策略。
+`plugins.Registry` 是唯一插件目录。Definition 包含版本化 Manifest 和返回全新 Extension 的构造函数；拒绝重复 ID、无效 schema/权限和非 Go runtime。Manager 取得不可变快照，后续 Registry 注册不改变正在运行的目录。元数据会深拷贝，不能通过外部修改共享 schema。
 
-Go 扩展由静态注册表提供全新对象，无 `.so`、无平台全局事件回调。Node Worker 是独立子进程，不向子进程继承核心环境、凭证或认证代理变量。只有插件配置和必要的事件字段进入 IPC；`data` 为收到的平台事件数据，不包含核心对象、TokenSource、AppSecret 或会话密钥。
+`pluginregistry/generated.go` 静态导入经审查的 `plugins/**` Go 包。`go generate ./pluginregistry` 只解析源码、生成 import 和注册调用，不执行插件；编译、测试和部署是显式动作。普通 Go build 不隐式执行 generator，生成文件提交进仓库。外部嵌入者也可手工创建 Registry 后传入 Manager。
 
-## 生命周期与并发
+## 生命周期、路由与并发
 
-- 核心管理配置采用独立 RW 锁和副本提交；同 Bot 的生命周期编辑独立串行。查询、沙盒、发送和文件工作不持有全局 API 锁。
-- 初始认证不持有 Bot 状态锁；内置指令在 Bot 锁内复制配置，锁外查询命令、探测状态和回复。发送 API 和回复能力传播调用的 context。
-- 插件 Load/Start/注册、事件调用与 Stop/Unload 按实例 gate 串行；等待 gate 可取消。注册集合在 Start 后封闭，禁止重复命令或后期修改处理器。
-- Go 初始化 context 只用于初始化；后台任务用 `Host.Context()`，在 Disable/Close 时取消。Go 扩展必须合作处理取消，不能被核心强行抢占。
-- 每次 JS 调用默认 2 秒；超时、取消、协议错误或退出会终止并等待 Worker。后续匹配事件可以重建失败 Worker，重启退避为 100ms × 连续失败次数、最多 1 秒。启动本身失败需要管理员修复后重试，不后台无限重试。
-- 不同实例可以并发，同实例内串行；单个插件异常不会阻断后续 Bus 订阅。管理器关闭时取消并等待生产和调试实例，禁止新 Worker。
-- 沙盒最多并发四个新实例，每次使用临时状态和捕获型 Reply，不复用生产进程或生产状态。信任确认仍是执行前提。
+每个插件/Bot 拥有独立对象、配置快照、状态文件和长期 context。生命周期为 Load → Start → 事件调用 → Stop → Unload；Load/Start 中通过 Host.Command/On 注册，Start 返回后封闭。失败初始化也会取消生命周期并执行清理。Host.Context 用于后台任务，不应使用短期初始化 context。
 
-Bot 的连接生命周期与插件的启用状态独立：停止/替换 Bot 不会重复订阅或重建插件进程，停止的 Bot 不再产生业务事件。插件可单独禁用以释放空闲 Worker；核心退出统一释放全部实例。
+同实例初始化、事件和停止通过可取消 gate 串行；不同实例可并行。Disable/Close 先取消 context、取消订阅，再等待在途调用并清理；重复 Enable 不创建重复实例/订阅。Bot 的连接与插件启用独立，Bot 重连复用订阅，停止 Bot 后不再产生事件；需要释放插件资源时禁用插件。框架关闭统一清理。
 
-## 存储与包
+Bus 按订阅顺序同步广播。多个插件可响应同一普通指令；一个实例的指令回调、匹配事件回调及 HandleEvent 均可执行。核心已处理的内置命令通过纯路由策略跳过插件，沙盒只测试插件。命令默认 `/` 前缀、支持引号和转义，其他前缀可用事件回调。
 
-`data/code-plugins/<id>` 为只读用途的已安装代码项目；`data/plugin-data/settings.json` 保存各 Bot 的启用/信任/配置，`state/<id>/<sha256(botID)>.json` 保存各 Bot 状态。配置和状态使用临时文件、同步与替换写入。
+调用默认 2 秒，**Go 超时是合作取消**，不强行杀死 goroutine。回调的 error/panic 会记录到状态并返回，其他回调和订阅继续执行；后续调用允许恢复，管理员也可重启实例。框架不再采用进程崩溃重建或 IPC 退避机制。后台 goroutine 必须自行 recover/同步、遵守 context 并在 Stop 中等待释放。
 
-ZIP 在私有 staging 中完整验证后安装，不覆盖已有 ID，不执行 npm scripts。路径、重复大小写名、Windows 保留名、符号链接、文件个数及解压大小受限；Go 扩展只能静态注册。安装不激活代码。代码导出与含私有数据的备份分开；恢复数据是显式动作，保持禁用/不信任，拒绝覆盖已有数据。
+管理 API 配置锁只保护快照和提交，同 Bot 生命周期编辑单独串行；查询、沙盒和消息发送不持全局锁。核心认证、内置回复和网络发送仍保持 P1 已有的锁外调用与 context 传播。
 
-## IPC v1 和权限
+## 配置、状态与备份
 
-IPC 为每行一个 JSON frame，含版本、ID、类型、payload/error；能力请求的 parent 必须等于正在执行的请求 ID。帧 1MiB、主机请求 512KiB、每次调用最多 128 个能力请求。stdout 保留给协议；console 转 stderr，仅在 log.write 权限下采集，每进程上限 16KiB。显式 log 能力每条最多 4096 字符。
+`data/plugin-data/settings.json` 保存按插件/Bot 的 enabled/config；`state/<id>/<sha256(botID)>.json` 保存状态。配置 schema、原子写入和磁盘状态限额保留。配置更新后重启实例生效，无需重新编译；WebUI 保存会为已启用实例执行重启。状态不会因重启或禁用丢失。
 
-权限在 Go 主机校验，不依赖插件自觉遵守。事件、指令、发送、配置、状态读写和日志各有独立授权。发送只能通过当前事件提供的能力，不能指定其他 Bot 的发送对象。Node 仍可自行使用标准库网络/文件能力，权限不是 OS 安全策略。
+数据备份只含版本、插件 ID、各 Bot 配置与状态，不含源码、激活标记或核心凭证。只允许恢复到已编译插件的空数据 scope，拒绝覆盖已有数据，保持禁用。备份是各状态文件的有效快照，不承诺跨 Bot 事务一致性，严格一致备份应停止主机。私有备份需保密。
 
-## 兼容与边界
+原 P1 的 `data/code-plugins` 及用户旧图数据保留在磁盘，不扫描、不加载、不删除。未知旧脚本 ID 的配置不恢复执行；同 ID 的新 Go 定义需人工核对配置和状态兼容性。旧格式 trusted 字段不再控制编译代码，已知 Go 插件仍按 enabled 恢复。
 
-P0 的去重、签名、gateway 恢复、认证/CSRF/日志 WS 保留。Node 24 LTS 和 IPC/API major 1 是当前运行约定。TypeScript 在构建时转 JS，不在服务器执行编译器。动态下载依赖、在线市场、新规则编辑器和强隔离均不属于本轮。
+## 能力与安全边界
 
-旧数据备份/能力检测/保守迁移见 `legacy-migration.md`，P0 源码调查保留在历史 `v2-p0-report.md`，不代表当前运行结构。实际验证与未验证环境见 `v2-p1-report.md`。
+Host 提供 BotID、配置快照、状态、日志、生命周期和注册；Call 提供规范 Event、参数、Config、State、Log、Reply/Send。主机检查事件/命令/发送/配置/状态/日志权限，回复绑定当前事件来源，不暴露 QQ 客户端、AppSecret 或其他 Bot 的 sender。
+
+这些能力约束是 SDK 使用契约，**同进程 Go 代码不是安全隔离**：可信插件仍可自行访问文件/网络、启动进程、调用 os.Exit 或耗尽资源，独立 goroutine panic 无法由外层回调 recover 捕获。禁止把任意上传源码自动编译执行，未实现 `.so`、解释器或进程外协议。当前无需模拟动态脚本体系。
+
+沙盒每次创建独立 Go 实例、临时状态和捕获型 Reply，最多并发四个；不复用生产 sender、状态或订阅。它可验证回复和错误，不限制插件自行产生的副作用。
+
+认证、CSRF、HTTPS Cookie 策略、日志 WebSocket 授权和凭证脱敏沿用 P0。WebUI 继续使用 MDUI 2 的普通浏览器 JavaScript，静态分发，无后端 Node 依赖。旧图只在离线迁移工具读取，详见 [迁移说明](legacy-migration.md)。验证和剩余边界见 [纠偏报告](v2-p1-go-correction.md)。

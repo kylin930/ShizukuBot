@@ -32,7 +32,7 @@ try:
   urllib.request.urlopen(base+'/litegraph/build/litegraph.js');raise RuntimeError('retired static route still live')
  except urllib.error.HTTPError as error:assert error.code==404
  print('PASS actual startup, login, APIs, bundled static assets, secret redaction')
- print('PASS repository HTTP concurrency runner: 100 successes, 0 failures, plugin cleaned up')
+ print('PASS repository HTTP concurrency runner: 100 successes, 0 failures, compiled Go plugin; no install or data changes')
  p.send_signal(signal.SIGTERM);assert p.wait(timeout=10)==0
  log.flush();text=(root/'startup.log').read_text();assert password not in text and key not in text
  print('PASS graceful shutdown and no credentials in startup/shutdown logs')

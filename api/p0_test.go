@@ -6,14 +6,15 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"github.com/gorilla/websocket"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"shizukubot/config"
 	"shizukubot/core"
 	"shizukubot/events"
+	"shizukubot/pluginregistry"
 	"shizukubot/plugins"
 	"shizukubot/webui"
 	"strings"
@@ -21,26 +22,8 @@ import (
 	"time"
 )
 
-func fixturePackage(t *testing.T, id, code string) []byte {
-	t.Helper()
-	var buf bytes.Buffer
-	z := zip.NewWriter(&buf)
-	mf := plugins.Manifest{APIVersion: 1, ID: id, Name: id, Version: "1.0.0", Runtime: "javascript", Entry: "dist/index.js", Permissions: []string{"commands.register", "message.send"}, ConfigSchema: plugins.Schema{Type: "object"}}
-	raw, _ := json.Marshal(mf)
-	for name, b := range map[string][]byte{"manifest.json": raw, "dist/index.js": []byte(code)} {
-		w, err := z.Create(name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		w.Write(b)
-	}
-	if err := z.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return buf.Bytes()
-}
-
-func setupRouter(t *testing.T) (*Router, *http.Cookie) {
+func setupRouter(t *testing.T) (*Router, *http.Cookie) { return setupRouterWith(t) }
+func setupRouterWith(t *testing.T, definitions ...plugins.Definition) (*Router, *http.Cookie) {
 	t.Helper()
 	login, err := os.ReadFile("../webui/templates/login.html")
 	if err != nil {
@@ -53,7 +36,16 @@ func setupRouter(t *testing.T) (*Router, *http.Cookie) {
 	os.WriteFile("webui/templates/index.html", []byte("<html>test</html>"), 0600)
 	cfg := &config.Config{WebUI: config.WebUIConfig{Port: 4545, Password: "session-signing-secret-for-tests"}}
 	bm := core.NewBotManager()
-	r := NewRouter(bm, cfg, "config/config.json", bm.GetLogManager())
+	registry, err := pluginregistry.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range definitions {
+		if err = registry.Register(d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := NewRouterWithRegistry(bm, cfg, "config/config.json", bm.GetLogManager(), registry)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
@@ -131,29 +123,18 @@ func TestAdminAPIAndSecretRedaction(t *testing.T) {
 		t.Fatal("logout failed", w.Code)
 	}
 }
-func TestSandboxLegacySelectedBotAndNoLiveSending(t *testing.T) {
-	r, c := setupRouter(t)
-	// No real Bot/OpenAPI exists. All sources must still execute and capture replies.
-	p, err := r.plugins.Store.Install(fixturePackage(t, "fixture", `export default {id:'fixture',version:'1.0.0',commands:{ping:async c=>c.reply('pong')}};`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = r.plugins.Trust("fixture", "selected", true); err != nil {
-		t.Fatal(err)
-	}
-
+func TestSandboxSelectedBotAndNoLiveSending(t *testing.T) {
+	r, c := setupRouterWith(t, testDefinition("failure", func() plugins.Extension {
+		return &callbackExtension{command: "fail", handle: func(context.Context, plugins.Call) error { return errors.New("fixture failure") }}
+	}))
 	for _, typ := range []string{"group", "c2c"} {
-		w := request(r, c, "POST", "/api/bots/selected/sandbox/send", `{"type":"`+typ+`","content":"/ping","plugin_id":"fixture"}`)
+		w := request(r, c, "POST", "/api/bots/selected/sandbox/send", `{"type":"`+typ+`","content":"/ping","plugin_id":"hello"}`)
 		var result SandboxMessageResponse
 		if json.Unmarshal(w.Body.Bytes(), &result) != nil || len(result.Replies) != 1 || result.Replies[0] != "pong" || len(result.Errors) != 0 || len(result.Executions) != 1 || result.Executions[0].Status != "completed" {
 			t.Fatal(w.Body.String())
 		}
 	}
-	if err := os.WriteFile(filepath.Join(p.Directory, "dist/index.js"), []byte(`export default {id:'fixture',version:'1.0.0',commands:{ping:()=>{throw Error('fixture failure')}}};`), 0600); err != nil {
-		t.Fatal(err)
-	}
-
-	w := request(r, c, "POST", "/api/bots/selected/sandbox/send", `{"content":"/ping","plugin_id":"fixture"}`)
+	w := request(r, c, "POST", "/api/bots/selected/sandbox/send", `{"content":"/fail","plugin_id":"failure"}`)
 	var out SandboxMessageResponse
 	json.Unmarshal(w.Body.Bytes(), &out)
 	if len(out.Errors) != 1 || len(out.Executions) != 1 || out.Executions[0].Status != "failed" {
@@ -233,16 +214,9 @@ func TestPasswordChangeRevokesSession(t *testing.T) {
 
 // Long plugin execution must not hold the configuration lock or block ordinary queries.
 func TestLongSandboxDoesNotBlockQueries(t *testing.T) {
-	r, c := setupRouter(t)
 	entered := make(chan struct{})
 	release := make(chan struct{})
-	mf := plugins.Manifest{APIVersion: 1, ID: "blocking", Name: "blocking", Version: "1.0.0", Runtime: "go", Permissions: []string{"commands.register"}, ConfigSchema: plugins.Schema{Type: "object"}}
-	if err := r.plugins.RegisterGo(mf, func() plugins.Extension { return &blockingExtension{entered: entered, release: release} }); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.plugins.Trust("blocking", "chosen", true); err != nil {
-		t.Fatal(err)
-	}
+	r, c := setupRouterWith(t, testDefinition("blocking", func() plugins.Extension { return &blockingExtension{entered: entered, release: release} }))
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -282,12 +256,16 @@ func (*blockingExtension) HandleEvent(context.Context, plugins.Call) error { ret
 func (*blockingExtension) Stop(context.Context) error                      { return nil }
 func (*blockingExtension) Unload(context.Context) error                    { return nil }
 func TestSandboxCapturesAllMedia(t *testing.T) {
-	r, c := setupRouter(t)
-	code := `export default {id:'media',version:'1.0.0',commands:{ping:async c=>{await c.reply('text');await c.replyImage('https://example.com/a');await c.replyRichMedia('text','https://example.com/a');await c.replyMarkdown('md');await c.replyKeyboard('md','{}');await c.replyVideo('https://example.com/v');}}};`
-	if _, err := r.plugins.Store.Install(fixturePackage(t, "media", code)); err != nil {
-		t.Fatal(err)
-	}
-	r.plugins.Trust("media", "chosen", true)
+	r, c := setupRouterWith(t, testDefinition("media", func() plugins.Extension {
+		return &callbackExtension{command: "ping", handle: func(ctx context.Context, c plugins.Call) error {
+			for _, kind := range []string{"text", "image", "rich_media", "markdown", "keyboard", "video"} {
+				if err := c.Send(ctx, events.Reply{Kind: kind, Text: "text", URL: "https://example.com/media"}); err != nil {
+					return err
+				}
+			}
+			return nil
+		}}
+	}))
 	w := request(r, c, "POST", "/api/bots/chosen/sandbox/send", `{"content":"/ping","plugin_id":"media"}`)
 	var result SandboxMessageResponse
 	if json.Unmarshal(w.Body.Bytes(), &result) != nil || len(result.Results) != 6 || len(result.Errors) != 0 {
@@ -296,7 +274,9 @@ func TestSandboxCapturesAllMedia(t *testing.T) {
 }
 
 func TestCoreBuiltinCommandsKeepPriority(t *testing.T) {
-	r, _ := setupRouter(t)
+	r, _ := setupRouterWith(t, testDefinition("listener", func() plugins.Extension {
+		return &callbackExtension{event: "*", handle: func(ctx context.Context, c plugins.Call) error { return c.Reply(ctx, "plugin") }}
+	}))
 	bot, err := core.NewBot(config.BotConfig{ID: "builtin-test", AppID: "mock", AppSecret: "mock", Mode: "webhook"})
 	if err != nil {
 		t.Fatal(err)
@@ -304,25 +284,56 @@ func TestCoreBuiltinCommandsKeepPriority(t *testing.T) {
 	if err = r.botManager.AddBot(bot); err != nil {
 		t.Fatal(err)
 	}
-	code := `export default {id:'listener',version:'1.0.0',events:{'*':async c=>c.reply('plugin')}};`
-	mf := plugins.Manifest{APIVersion: 1, ID: "listener", Name: "listener", Version: "1.0.0", Runtime: "javascript", Entry: "dist/index.js", Permissions: []string{"events.subscribe", "message.send"}, ConfigSchema: plugins.Schema{Type: "object"}}
-	var buf bytes.Buffer
-	writer := zip.NewWriter(&buf)
-	manifest, _ := json.Marshal(mf)
-	for name, data := range map[string][]byte{"manifest.json": manifest, "dist/index.js": []byte(code)} {
-		w, _ := writer.Create(name)
-		w.Write(data)
-	}
-	writer.Close()
-	if _, err = r.plugins.Store.Install(buf.Bytes()); err != nil {
-		t.Fatal(err)
-	}
-	if err = r.plugins.Enable(context.Background(), "listener", bot.ID, true); err != nil {
+	if err = r.plugins.Enable(context.Background(), "listener", bot.ID); err != nil {
 		t.Fatal(err)
 	}
 	var replies []string
 	err = r.botManager.Events().Publish(context.Background(), events.Event{BotID: bot.ID, Type: "c2c_message", Message: "/help", Reply: func(_ context.Context, reply events.Reply) error { replies = append(replies, reply.Text); return nil }})
 	if err != nil || len(replies) != 1 || replies[0] == "plugin" {
 		t.Fatal("builtin priority regressed", replies, err)
+	}
+}
+
+type callbackExtension struct {
+	plugins.Base
+	command string
+	event   events.Type
+	handle  func(context.Context, plugins.Call) error
+}
+
+func (e *callbackExtension) Load(_ context.Context, h plugins.Host) error {
+	if e.command != "" {
+		return h.Command(e.command, e.handle)
+	}
+	return h.On(e.event, e.handle)
+}
+func testDefinition(id string, create func() plugins.Extension) plugins.Definition {
+	return plugins.Definition{Manifest: plugins.Manifest{APIVersion: 1, ID: id, Name: id, Version: "1.0.0", Runtime: "go", Permissions: []string{"commands.register", "events.subscribe", "message.send"}, ConfigSchema: plugins.Schema{Type: "object"}}, New: create}
+}
+func TestCompiledPluginManagement(t *testing.T) {
+	r, c := setupRouter(t)
+	for _, tc := range []struct{ method, path, body string }{{"POST", "/api/plugins", `{"package_base64":"ignored"}`}, {"DELETE", "/api/plugins/hello", `{}`}} {
+		if w := request(r, c, tc.method, tc.path, tc.body); w.Code != http.StatusGone {
+			t.Fatal(tc, w.Code)
+		}
+	}
+	w := request(r, c, "GET", "/api/plugins", "")
+	if !strings.Contains(w.Body.String(), `"id":"hello"`) {
+		t.Fatal(w.Body.String())
+	}
+	if w = request(r, c, "PUT", "/api/plugins/counter", `{"bot_id":"selected","config":{"prefix":"test"}}`); !strings.Contains(w.Body.String(), `"code":0`) {
+		t.Fatal(w.Body.String())
+	}
+	if w = request(r, c, "POST", "/api/plugins/counter/toggle", `{"bot_id":"selected","enabled":true}`); !strings.Contains(w.Body.String(), `"code":0`) {
+		t.Fatal(w.Body.String())
+	}
+	if w = request(r, c, "POST", "/api/plugins/counter/restart", `{"bot_id":"selected"}`); !strings.Contains(w.Body.String(), `"code":0`) {
+		t.Fatal(w.Body.String())
+	}
+	if w = request(r, c, "GET", "/api/plugins/counter/export", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"plugin_id": "counter"`) || strings.Contains(w.Body.String(), "plugin.go") {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if w = request(r, c, "POST", "/api/plugins/counter/toggle", `{"bot_id":"selected","enabled":false}`); !strings.Contains(w.Body.String(), `"code":0`) {
+		t.Fatal(w.Body.String())
 	}
 }

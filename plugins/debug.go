@@ -37,9 +37,6 @@ func (m *Manager) Debug(ctx context.Context, id string, e events.Event, config m
 		return err
 	}
 	settings := m.Config(id, e.BotID)
-	if !settings.Trusted {
-		return errors.New("debug requires explicit trust")
-	}
 	if config == nil {
 		config = settings.Config
 	}
@@ -54,28 +51,22 @@ func (m *Manager) Debug(ctx context.Context, id string, e events.Event, config m
 	defer os.RemoveAll(tmp)
 	life, lifeCancel := context.WithCancel(ctx)
 	defer lifeCancel()
-	s := &slot{life: life, manifest: mf, status: Status{BotID: e.BotID, PluginID: id}, config: cfg.(map[string]any), state: &diskState{file: filepath.Join(tmp, "state.json")}}
+	s := &slot{cancel: lifeCancel, life: life, manifest: mf, status: Status{BotID: e.BotID, PluginID: id}, config: cfg.(map[string]any), state: &diskState{file: filepath.Join(tmp, "state.json")}}
 	if err = m.start(ctx, s, f); err != nil {
 		return err
 	}
 	defer func() {
+		lifeCancel()
 		stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		err = errors.Join(err, s.runtime.Stop(stopCtx))
 	}()
+	if !matches(s.registration, e) {
+		return nil
+	}
 	callCtx, cancel := context.WithTimeout(ctx, m.Timeout)
 	defer cancel()
-	call := Call{Event: e, Log: func(message string) {
-		if mf.Allows("log.write") && m.Log != nil {
-			m.Log(e.BotID, id, message)
-		}
-	}, Config: map[string]any{}, State: &permissionState{manifest: mf, inner: s.state}}
-	if mf.Allows("config.read") {
-		call.Config = copyMap(s.config)
-	}
-	if !mf.Allows("message.send") {
-		call.Event.Reply = func(context.Context, events.Reply) error { return errors.New("message.send denied") }
-	}
+	call := m.call(s, e)
 	return safe(func() error { return s.runtime.Handle(callCtx, call) })
 }
 
@@ -96,5 +87,3 @@ func (p *permissionState) Set(ctx context.Context, k string, v json.RawMessage) 
 	}
 	return p.inner.Set(ctx, k, v)
 }
-
-// Packages includes installed JS projects and statically registered Go extensions.

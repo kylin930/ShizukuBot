@@ -1,54 +1,84 @@
 package plugins
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"path/filepath"
 	"sort"
+	"sync"
 )
 
-func (m *Manager) RegisterGo(manifest Manifest, create func() Extension) error {
-	if err := manifest.Validate(); err != nil {
+// Definition describes a compiled Go package. New must return a fresh instance
+// for each Bot and sandbox run; shared mutable singletons are unsupported.
+type Definition struct {
+	Manifest Manifest
+	New      func() Extension
+}
+
+// Registry is a build-time catalog, without Bot state or a dynamic code loader.
+type Registry struct {
+	mu          sync.RWMutex
+	definitions map[string]Definition
+}
+
+func NewRegistry() *Registry { return &Registry{definitions: map[string]Definition{}} }
+
+// Register rejects incompatible definitions and duplicate IDs.
+func (r *Registry) Register(d Definition) error {
+	if err := d.Manifest.Validate(); err != nil {
 		return err
 	}
-	if manifest.Runtime != "go" || create == nil {
-		return errors.New("invalid Go registration")
+	if d.New == nil {
+		return errors.New("plugin constructor required")
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.native[manifest.ID]; ok {
-		return errors.New("duplicate Go registration")
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.definitions == nil {
+		r.definitions = map[string]Definition{}
 	}
-	if _, err := m.Store.Get(manifest.ID); err == nil {
-		return errors.New("Go ID conflicts with installed code package")
+	if _, ok := r.definitions[d.Manifest.ID]; ok {
+		return errors.New("duplicate plugin ID: " + d.Manifest.ID)
 	}
-	m.native[manifest.ID] = struct {
-		m       Manifest
-		factory Factory
-	}{manifest, func(Manifest, string, map[string]any, State) (Runtime, error) {
-		return &Native{Extension: create()}, nil
-	}}
+	d.Manifest = cloneManifest(d.Manifest)
+	r.definitions[d.Manifest.ID] = d
 	return nil
 }
-func (m *Manager) manifest(id string) (Manifest, Factory, error) {
-	m.mu.RLock()
-	native, ok := m.native[id]
-	m.mu.RUnlock()
-	if ok {
-		return native.m, native.factory, nil
+func cloneManifest(m Manifest) Manifest {
+	b, _ := json.Marshal(m)
+	var out Manifest
+	_ = json.Unmarshal(b, &out)
+	return out
+}
+func (r *Registry) snapshot() map[string]Definition {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := map[string]Definition{}
+	for id, d := range r.definitions {
+		d.Manifest = cloneManifest(d.Manifest)
+		out[id] = d
 	}
-	p, err := m.Store.Get(id)
-	if err != nil {
-		return Manifest{}, nil, err
+	return out
+}
+func (m *Manager) manifest(id string) (Manifest, func() Extension, error) {
+	d, ok := m.registry[id]
+	if !ok {
+		return Manifest{}, nil, errors.New("plugin is not compiled into this binary")
 	}
-	return p.Manifest, func(mf Manifest, bot string, c map[string]any, s State) (Runtime, error) {
-		return &Worker{Node: m.Node, Entry: filepath.Join(p.Directory, mf.Entry), Manifest: mf, BotID: bot, Config: c, Log: func(message string) {
-			if mf.Allows("log.write") && m.Log != nil {
-				m.Log(bot, mf.ID, message)
-			}
-		}}, nil
-	}, nil
+	return cloneManifest(d.Manifest), d.New, nil
+}
+
+// Package is catalog metadata, not an installable source archive.
+type Package struct {
+	Manifest Manifest `json:"manifest"`
+}
+
+func (m *Manager) Packages() ([]Package, error) {
+	out := []Package{}
+	for _, d := range m.registry {
+		out = append(out, Package{Manifest: cloneManifest(d.Manifest)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Manifest.ID < out[j].Manifest.ID })
+	return out, nil
 }
 func (m *Manager) Config(id, bot string) Settings {
 	m.settingsMu.Lock()
@@ -58,20 +88,22 @@ func (m *Manager) Config(id, bot string) Settings {
 	return s
 }
 func copyMap(v map[string]any) map[string]any {
-	data, _ := json.Marshal(v)
-	var out map[string]any
-	_ = json.Unmarshal(data, &out)
+	b, _ := json.Marshal(v)
+	out := map[string]any{}
+	_ = json.Unmarshal(b, &out)
 	if out == nil {
 		out = map[string]any{}
 	}
 	return out
 }
+
+// Configure persists validated settings; restart the instance to apply its snapshot.
 func (m *Manager) Configure(id, bot string, config map[string]any) error {
 	mf, _, err := m.manifest(id)
 	if err != nil {
 		return err
 	}
-	if _, err := json.Marshal(config); err != nil {
+	if _, err = json.Marshal(config); err != nil {
 		return err
 	}
 	v, err := mf.ConfigSchema.Validate(copyMap(config))
@@ -105,51 +137,4 @@ func (m *Manager) saveSettings(id, bot string, update func(*Settings)) error {
 	}
 	m.settings = all
 	return nil
-}
-func (m *Manager) Packages() ([]Package, error) {
-	out, err := m.Store.List()
-	if err != nil {
-		return nil, err
-	}
-	m.mu.RLock()
-	for _, n := range m.native {
-		out = append(out, Package{Manifest: n.m})
-	}
-	m.mu.RUnlock()
-	sort.Slice(out, func(i, j int) bool { return out[i].Manifest.ID < out[j].Manifest.ID })
-	return out, nil
-}
-func (m *Manager) Trust(id, bot string, trusted bool) error {
-	if _, _, err := m.manifest(id); err != nil {
-		return err
-	}
-	return m.saveSettings(id, bot, func(s *Settings) { s.Trusted = trusted })
-}
-func (m *Manager) Remove(ctx context.Context, id string) error {
-	m.mu.RLock()
-	_, compiled := m.native[id]
-	m.mu.RUnlock()
-	if compiled {
-		return errors.New("compiled extensions can only be disabled, not uninstalled")
-	}
-
-	for _, s := range m.Statuses() {
-		if s.PluginID == id {
-			if err := m.Disable(ctx, id, s.BotID); err != nil {
-				return err
-			}
-		}
-	}
-	m.settingsMu.Lock()
-	for bot, s := range m.settings[id] {
-		s.Trusted = false
-		s.Enabled = false
-		m.settings[id][bot] = s
-	}
-	err := AtomicJSON(filepath.Join(m.root, "settings.json"), m.settings)
-	m.settingsMu.Unlock()
-	if err != nil {
-		return err
-	}
-	return m.Store.Remove(id)
 }
