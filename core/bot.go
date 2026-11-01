@@ -604,3 +604,10 @@ func (b *Bot) logError(format string, args ...interface{}) {
 
 // IsEnabled returns the configured startup flag under the bot lock.
 func (b *Bot) IsEnabled() bool { b.mu.Lock(); defer b.mu.Unlock(); return b.Enabled }
+
+// ConfigSnapshot copies mutable bot settings without exposing shared slices.
+func (b *Bot) ConfigSnapshot() config.BotConfig {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return config.BotConfig{ID: b.ID, Name: b.Name, AppID: b.AppID, AppSecret: b.AppSecret, Mode: b.Mode, Enabled: b.Enabled, Plugins: append([]string(nil), b.PluginIDs...), CommandPrefix: b.CommandPrefix, AdminUsers: append([]string(nil), b.AdminUsers...)}
+}

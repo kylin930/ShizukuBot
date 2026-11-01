@@ -33,7 +33,13 @@ func SetCommandTemplates(t *CommandTemplates) {
 // 匹配规则与 event/on_command 一致：按 CommandPrefix 切分，首词精确匹配指令名。
 func (b *Bot) HandleBuiltinCommand(ctx context.Context, ev events.Event) bool {
 	b.mu.Lock()
-	defer b.mu.Unlock()
+	// Only snapshot under the bot lock. Providers, system probes and replies may block.
+	view := &Bot{ID: b.ID, Name: b.Name, CommandPrefix: b.CommandPrefix, PluginIDs: append([]string(nil), b.PluginIDs...), Stats: b.Stats, Commands: b.Commands, LogManager: b.LogManager}
+	b.mu.Unlock()
+	return view.handleBuiltinSnapshot(ctx, ev)
+}
+
+func (b *Bot) handleBuiltinSnapshot(ctx context.Context, ev events.Event) bool {
 	msg := strings.TrimSpace(ev.Message)
 	if msg == "" {
 		return false

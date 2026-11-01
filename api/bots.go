@@ -26,17 +26,7 @@ func (r *Router) GetBots(w http.ResponseWriter, req *http.Request) {
 	bots := r.botManager.GetAllBots()
 	result := make([]BotInfo, 0, len(bots))
 	for _, bot := range bots {
-		result = append(result, BotInfo{
-			ID:            bot.ID,
-			Name:          bot.Name,
-			AppID:         bot.AppID,
-			Enabled:       bot.IsEnabled(),
-			Running:       bot.IsRunning(),
-			Mode:          bot.Mode,
-			Plugins:       bot.PluginIDs,
-			CommandPrefix: bot.CommandPrefix,
-			AdminUsers:    bot.AdminUsers,
-		})
+		result = append(result, botInfo(bot))
 	}
 	SuccessResponse(w, result)
 }
@@ -51,17 +41,7 @@ func (r *Router) GetBot(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	result := BotInfo{
-		ID:            bot.ID,
-		Name:          bot.Name,
-		AppID:         bot.AppID,
-		Enabled:       bot.IsEnabled(),
-		Running:       bot.IsRunning(),
-		Mode:          bot.Mode,
-		Plugins:       bot.PluginIDs,
-		CommandPrefix: bot.CommandPrefix,
-		AdminUsers:    bot.AdminUsers,
-	}
+	result := botInfo(bot)
 	SuccessResponse(w, result)
 }
 
@@ -116,23 +96,13 @@ func (r *Router) CreateBot(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	r.config.Bots = append(r.config.Bots, cfg)
-	if err := config.SaveConfig(r.configPath, r.config); err != nil {
+	if err := r.changeConfig(func(c *config.Config) { c.Bots = append(c.Bots, cfg) }); err != nil {
+		_ = r.botManager.RemoveBot(bot.ID)
 		InternalErrorResponse(w, "failed to save config")
 		return
 	}
 
-	result := BotInfo{
-		ID:            bot.ID,
-		Name:          bot.Name,
-		AppID:         bot.AppID,
-		Enabled:       bot.IsEnabled(),
-		Running:       bot.IsRunning(),
-		Mode:          bot.Mode,
-		Plugins:       bot.PluginIDs,
-		CommandPrefix: bot.CommandPrefix,
-		AdminUsers:    bot.AdminUsers,
-	}
+	result := botInfo(bot)
 	SuccessResponse(w, result)
 }
 
@@ -163,7 +133,7 @@ func (r *Router) UpdateBot(w http.ResponseWriter, req *http.Request) {
 	}
 
 	var next config.BotConfig
-	for _, cfg := range r.config.Bots {
+	for _, cfg := range r.configSnapshot().Bots {
 		if cfg.ID == id {
 			next = cfg
 			break
@@ -209,16 +179,18 @@ func (r *Router) UpdateBot(w http.ResponseWriter, req *http.Request) {
 	}
 	bot = replacement
 
-	for i, cfg := range r.config.Bots {
-		if cfg.ID == id {
-			r.config.Bots[i] = next
-			break
+	if err := r.changeConfig(func(c *config.Config) {
+		for i, cfg := range c.Bots {
+			if cfg.ID == id {
+				c.Bots[i] = next
+				break
+			}
 		}
-	}
-	if err := config.SaveConfig(r.configPath, r.config); err != nil {
+	}); err != nil {
 		InternalErrorResponse(w, "failed to save config")
 		return
 	}
+
 	if wasRunning && next.Enabled {
 		if err = bot.Start(); err != nil {
 			BadRequestResponse(w, "configuration saved; bot restart failed")
@@ -226,17 +198,7 @@ func (r *Router) UpdateBot(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	result := BotInfo{
-		ID:            bot.ID,
-		Name:          bot.Name,
-		AppID:         bot.AppID,
-		Enabled:       bot.IsEnabled(),
-		Running:       bot.IsRunning(),
-		Mode:          bot.Mode,
-		Plugins:       bot.PluginIDs,
-		CommandPrefix: bot.CommandPrefix,
-		AdminUsers:    bot.AdminUsers,
-	}
+	result := botInfo(bot)
 	SuccessResponse(w, result)
 }
 
@@ -249,14 +211,14 @@ func (r *Router) DeleteBot(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	for i, cfg := range r.config.Bots {
-		if cfg.ID == id {
-			r.config.Bots = append(r.config.Bots[:i], r.config.Bots[i+1:]...)
-			break
+	if err := r.changeConfig(func(c *config.Config) {
+		for i, cfg := range c.Bots {
+			if cfg.ID == id {
+				c.Bots = append(c.Bots[:i], c.Bots[i+1:]...)
+				break
+			}
 		}
-	}
-
-	if err := config.SaveConfig(r.configPath, r.config); err != nil {
+	}); err != nil {
 		InternalErrorResponse(w, "failed to save config")
 		return
 	}
@@ -279,29 +241,19 @@ func (r *Router) StartBot(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// 更新配置中的 enabled 状态
-	for i := range r.config.Bots {
-		if r.config.Bots[i].ID == id {
-			r.config.Bots[i].Enabled = true
-			break
+	if err := r.changeConfig(func(c *config.Config) {
+		for i := range c.Bots {
+			if c.Bots[i].ID == id {
+				c.Bots[i].Enabled = true
+				break
+			}
 		}
-	}
-	if err := config.SaveConfig(r.configPath, r.config); err != nil {
+	}); err != nil {
 		InternalErrorResponse(w, "failed to save config")
 		return
 	}
 
-	SuccessResponse(w, BotInfo{
-		ID:            bot.ID,
-		Name:          bot.Name,
-		AppID:         bot.AppID,
-		Enabled:       bot.IsEnabled(),
-		Running:       bot.IsRunning(),
-		Mode:          bot.Mode,
-		Plugins:       bot.PluginIDs,
-		CommandPrefix: bot.CommandPrefix,
-		AdminUsers:    bot.AdminUsers,
-	})
+	SuccessResponse(w, botInfo(bot))
 }
 
 func (r *Router) StopBot(w http.ResponseWriter, req *http.Request) {
@@ -316,27 +268,22 @@ func (r *Router) StopBot(w http.ResponseWriter, req *http.Request) {
 
 	bot.Stop()
 
-	// 更新配置中的 enabled 状态
-	for i := range r.config.Bots {
-		if r.config.Bots[i].ID == id {
-			r.config.Bots[i].Enabled = false
-			break
+	if err := r.changeConfig(func(c *config.Config) {
+		for i := range c.Bots {
+			if c.Bots[i].ID == id {
+				c.Bots[i].Enabled = false
+				break
+			}
 		}
-	}
-	if err := config.SaveConfig(r.configPath, r.config); err != nil {
+	}); err != nil {
 		InternalErrorResponse(w, "failed to save config")
 		return
 	}
 
-	SuccessResponse(w, BotInfo{
-		ID:            bot.ID,
-		Name:          bot.Name,
-		AppID:         bot.AppID,
-		Enabled:       bot.IsEnabled(),
-		Running:       bot.IsRunning(),
-		Mode:          bot.Mode,
-		Plugins:       bot.PluginIDs,
-		CommandPrefix: bot.CommandPrefix,
-		AdminUsers:    bot.AdminUsers,
-	})
+	SuccessResponse(w, botInfo(bot))
+}
+
+func botInfo(b *core.Bot) BotInfo {
+	c := b.ConfigSnapshot()
+	return BotInfo{ID: c.ID, Name: c.Name, AppID: c.AppID, Enabled: c.Enabled, Running: b.IsRunning(), Mode: c.Mode, Plugins: c.Plugins, CommandPrefix: c.CommandPrefix, AdminUsers: c.AdminUsers}
 }

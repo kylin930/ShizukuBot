@@ -43,7 +43,7 @@ func (r *Router) SandboxSend(w http.ResponseWriter, req *http.Request) {
 	out := SandboxMessageResponse{Replies: []string{}, Results: []events.Reply{}, Errors: []string{}}
 	e := events.Event{BotID: botID, Type: "c2c_message", Source: events.C2C, Message: body.Content, UserID: "debug-user"}
 	if bot, ok := r.botManager.GetBot(botID); ok {
-		e.PluginIDs = append([]string(nil), bot.PluginIDs...)
+		e.PluginIDs = bot.ConfigSnapshot().Plugins
 	}
 	if body.Type == "group" {
 		e.Type = "group_at_message"

@@ -118,3 +118,25 @@ func TestRemoveBotCancelsInflightHandlerWithoutManagerDeadlock(t *testing.T) {
 	}
 	<-finished
 }
+
+func TestBuiltinReplyDoesNotHoldBotLock(t *testing.T) {
+	b := testBot(t, "lock")
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		b.HandleBuiltinCommand(context.Background(), events.Event{Message: "#shizuku", Reply: func(context.Context, events.Reply) error { close(entered); <-release; return nil }})
+	}()
+	<-entered
+	snapshot := make(chan struct{})
+	go func() { b.ConfigSnapshot(); close(snapshot) }()
+	select {
+	case <-snapshot:
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("network reply held bot mutex")
+	}
+	close(release)
+	<-done
+}

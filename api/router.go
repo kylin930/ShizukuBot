@@ -86,7 +86,8 @@ type Router struct {
 	templates   *template.Template
 	pluginStore *plugin.PluginStore
 	engine      *plugin.ExecutionEngine
-	apiMu       sync.Mutex
+	configMu    sync.RWMutex
+	botOps      sync.Map
 }
 
 func NewRouter(botManager *core.BotManager, cfg *config.Config, cfgPath string, logManager *core.LogManager) *Router {
@@ -159,13 +160,22 @@ func (r *Router) registerRoutes() {
 
 	api := r.PathPrefix("/api").Subrouter()
 	api.Use(webui.AdminMiddleware)
+	// Only lifecycle/config edits for the same bot are serialized. Queries, sends,
+	// sandbox execution and plugin operations never take this lock.
 	api.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			r.apiMu.Lock()
-			defer r.apiMu.Unlock()
+			parts := strings.Split(strings.Trim(req.URL.Path, "/"), "/")
+			edit := len(parts) >= 3 && parts[0] == "api" && parts[1] == "bots" && (req.Method == "PUT" || req.Method == "DELETE" || (req.Method == "POST" && len(parts) == 4 && (parts[3] == "start" || parts[3] == "stop")))
+			if edit {
+				v, _ := r.botOps.LoadOrStore(parts[2], &sync.Mutex{})
+				lock := v.(*sync.Mutex)
+				lock.Lock()
+				defer lock.Unlock()
+			}
 			next.ServeHTTP(w, req)
 		})
 	})
+
 	api.HandleFunc("/bots", r.GetBots).Methods(http.MethodGet)
 	api.HandleFunc("/bots/{id}", r.GetBot).Methods(http.MethodGet)
 	api.HandleFunc("/bots", r.CreateBot).Methods(http.MethodPost)

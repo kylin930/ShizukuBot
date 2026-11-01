@@ -27,3 +27,12 @@ Security uses explicit secure-cookie configuration or actual TLS, never forwarde
 ## Validation and follow-up
 
 See v2-p0-report.md for actual tests, SDK compatibility findings and limits. Real QQ authorization, gateway limits, resume behavior and hosted HTTPS termination still require deployment testing. P1 should add an isolated worker protocol, explicit plugin capabilities and an SDK independent of graph structures, not expose Yaegi as isolation.
+
+
+## P1 implementation plan
+
+P1 replaces the legacy execution model with statically registered Go extensions and one Node.js process per plugin/Bot instance. IPC v1 carries bounded JSON lines with request IDs; capabilities, replies, configuration and per-Bot state are mediated by Go. Node 24 LTS is required; TypeScript is compiled before installation. Separate processes are fault boundaries, not a filesystem/network sandbox. Only explicitly trusted packages may run.
+
+Installation stages and validates a bounded ZIP below a dedicated code-plugin root, then atomically installs a new ID. User configuration/state live outside package code. Migration archives exact legacy files before generating only narrowly proven equivalent code; unsupported graphs remain disabled with a manual report. Rollback never removes user-edited generated code. Legacy runtime removal follows worker and migration validation, with no production fallback.
+
+Administrative configuration snapshots use a dedicated RW lock, per-Bot lifecycle edits are serialized independently, and queries/sandbox/file scans do not take that lock. Builtin replies use a Bot snapshot and invoke all external callbacks after releasing its mutex.
