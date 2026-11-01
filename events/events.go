@@ -24,7 +24,12 @@ const (
 )
 
 // Reply is a transport-independent outgoing message capability request.
-type Reply struct{ Kind, Text, URL, Keyboard string }
+type Reply struct {
+	Kind     string `json:"kind"`
+	Text     string `json:"text,omitempty"`
+	URL      string `json:"url,omitempty"`
+	Keyboard string `json:"keyboard,omitempty"`
+}
 
 // Event is independent of SDK DTOs and legacy graph structures. Treat fields as immutable.
 type Event struct {

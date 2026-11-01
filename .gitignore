@@ -78,3 +78,10 @@ venv/
 env/
 # Local bootstrap credential
 data/.admin-initial-password
+
+# Built SDK examples are distributable fixtures, not runtime data.
+!examples/plugins/*/dist/
+!examples/plugins/*/dist/index.js
+data/code-plugins/
+data/plugin-data/
+data/legacy-backups/
