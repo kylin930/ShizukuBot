@@ -58,10 +58,11 @@ type Manager struct {
 	settingsMu sync.Mutex
 	settings   map[string]map[string]Settings
 	closed     bool
+	debugSlots chan struct{}
 }
 
 func NewManager(store *Store, bus *events.Bus, dataRoot string) (*Manager, error) {
-	m := &Manager{Store: store, Bus: bus, Timeout: 2 * time.Second, root: dataRoot, slots: map[string]*slot{}, settings: map[string]map[string]Settings{}, native: map[string]struct {
+	m := &Manager{Store: store, Bus: bus, Timeout: 2 * time.Second, root: dataRoot, slots: map[string]*slot{}, settings: map[string]map[string]Settings{}, debugSlots: make(chan struct{}, 4), native: map[string]struct {
 		m       Manifest
 		factory Factory
 	}{}}
@@ -318,7 +319,7 @@ func matches(reg Registration, e events.Event) bool {
 			return true
 		}
 	}
-	command, _, ok := ParseCommand(e.Message)
+	command, _, ok := ParseCommand(CommandText(e))
 	if ok {
 		for _, name := range reg.Commands {
 			if name == command {
@@ -528,6 +529,13 @@ func (m *Manager) Commands(ids []string, bot string) []string {
 
 // Debug uses a fresh instance and temporary state; production subscriptions and senders are not involved.
 func (m *Manager) Debug(ctx context.Context, id string, e events.Event, config map[string]any) (err error) {
+	select {
+	case m.debugSlots <- struct{}{}:
+		defer func() { <-m.debugSlots }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
 	mf, f, err := m.manifest(id)
 	if err != nil {
 		return err

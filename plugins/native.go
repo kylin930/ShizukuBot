@@ -53,7 +53,7 @@ func (n *Native) Start(ctx context.Context) (r Registration, err error) {
 }
 func (n *Native) Handle(ctx context.Context, c Call) error {
 	var errs []error
-	if command, args, ok := ParseCommand(c.Event.Message); ok {
+	if command, args, ok := ParseCommand(CommandText(c.Event)); ok {
 		if h := n.commands[command]; h != nil {
 			c.Args = args
 			errs = append(errs, safe(func() error { return h(ctx, c) }))

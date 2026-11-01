@@ -1,7 +1,10 @@
 package api
 
 import (
+	"archive/zip"
 	"bytes"
+	"context"
+	"encoding/base64"
 	"encoding/json"
 	"github.com/gorilla/websocket"
 	"net/http"
@@ -10,14 +13,31 @@ import (
 	"path/filepath"
 	"shizukubot/config"
 	"shizukubot/core"
-	"shizukubot/plugin"
+	"shizukubot/plugins"
 	"shizukubot/webui"
 	"strings"
 	"testing"
 	"time"
 )
 
-const sandboxGraph = `{"nodes":[{"id":1,"type":"event/on_command","properties":{"command":"ping","prefix":"/"},"outputs":[{"name":"触发","type":-1,"links":[1]}]},{"id":2,"type":"action/send_message","properties":{"template":"pong"},"inputs":[{"name":"触发","type":-1,"link":1}]}],"links":[[1,1,0,2,0,-1]]}`
+func fixturePackage(t *testing.T, id, code string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	z := zip.NewWriter(&buf)
+	mf := plugins.Manifest{APIVersion: 1, ID: id, Name: id, Version: "1.0.0", Runtime: "javascript", Entry: "dist/index.js", Permissions: []string{"commands.register", "message.send"}, ConfigSchema: plugins.Schema{Type: "object"}}
+	raw, _ := json.Marshal(mf)
+	for name, b := range map[string][]byte{"manifest.json": raw, "dist/index.js": []byte(code)} {
+		w, err := z.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.Write(b)
+	}
+	if err := z.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
 
 func setupRouter(t *testing.T) (*Router, *http.Cookie) {
 	t.Helper()
@@ -33,6 +53,13 @@ func setupRouter(t *testing.T) (*Router, *http.Cookie) {
 	cfg := &config.Config{WebUI: config.WebUIConfig{Port: 4545, Password: "session-signing-secret-for-tests"}}
 	bm := core.NewBotManager()
 	r := NewRouter(bm, cfg, "config/config.json", bm.GetLogManager())
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := r.Close(ctx); err != nil {
+			t.Error(err)
+		}
+	})
 	secret, err := os.ReadFile("data/.admin-initial-password")
 	if err != nil {
 		t.Fatal(err)
@@ -106,10 +133,14 @@ func TestAdminAPIAndSecretRedaction(t *testing.T) {
 func TestSandboxLegacySelectedBotAndNoLiveSending(t *testing.T) {
 	r, c := setupRouter(t)
 	// No real Bot/OpenAPI exists. All sources must still execute and capture replies.
-	p := &plugin.Plugin{ID: "fixture", Name: "fixture", Enabled: false, BotID: "selected", Graph: json.RawMessage(sandboxGraph)}
-	if err := r.pluginStore.Save(p); err != nil {
+	p, err := r.plugins.Store.Install(fixturePackage(t, "fixture", `export default {id:'fixture',version:'1.0.0',commands:{ping:async c=>c.reply('pong')}};`))
+	if err != nil {
 		t.Fatal(err)
 	}
+	if err = r.plugins.Trust("fixture", "selected", true); err != nil {
+		t.Fatal(err)
+	}
+
 	for _, typ := range []string{"group", "c2c"} {
 		w := request(r, c, "POST", "/api/bots/selected/sandbox/send", `{"type":"`+typ+`","content":"/ping","plugin_id":"fixture"}`)
 		var result SandboxMessageResponse
@@ -117,8 +148,10 @@ func TestSandboxLegacySelectedBotAndNoLiveSending(t *testing.T) {
 			t.Fatal(w.Body.String())
 		}
 	}
-	p.Graph = json.RawMessage(strings.Replace(sandboxGraph, "action/send_message", "missing/action", 1))
-	r.pluginStore.Save(p)
+	if err := os.WriteFile(filepath.Join(p.Directory, "dist/index.js"), []byte(`export default {id:'fixture',version:'1.0.0',commands:{ping:()=>{throw Error('fixture failure')}}};`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
 	w := request(r, c, "POST", "/api/bots/selected/sandbox/send", `{"content":"/ping","plugin_id":"fixture"}`)
 	var out SandboxMessageResponse
 	json.Unmarshal(w.Body.Bytes(), &out)
@@ -168,17 +201,21 @@ func TestLogWebsocketAuthorizationAndOrigin(t *testing.T) {
 }
 func TestScanConfinement(t *testing.T) {
 	r, c := setupRouter(t)
-	outside := filepath.Join(t.TempDir(), "secret.go")
-	os.WriteFile(outside, []byte("package private\n"), 0600)
-	os.Symlink(outside, "data/escape.go")
-	w := request(r, c, "POST", "/api/code/scan", `{"source_type":"file","path":"data/escape.go"}`)
-	if strings.Contains(w.Body.String(), `"code":0`) {
-		t.Fatal("scan symlink escaped", w.Body.String())
+	for _, route := range []string{"/api/code/scan", "/api/code/code2graph", "/api/code/graph2code", "/api/plugins/test/graph", "/api/custom-nodes"} {
+		w := request(r, c, "POST", route, `{"path":"/etc/passwd"}`)
+		if w.Code < 400 {
+			t.Fatal("retired execution route still callable", route, w.Code)
+		}
 	}
-	os.WriteFile("data/valid.go", []byte("package demo\nfunc Example() {}"), 0600)
-	w = request(r, c, "POST", "/api/code/scan", `{"source_type":"file","path":"data/valid.go"}`)
-	if !strings.Contains(w.Body.String(), `"code":0`) {
-		t.Fatal("valid scan failed", w.Body.String())
+	var buf bytes.Buffer
+	z := zip.NewWriter(&buf)
+	w, _ := z.Create("../escape")
+	w.Write([]byte("bad"))
+	z.Close()
+	raw, _ := json.Marshal(map[string]string{"package_base64": base64.StdEncoding.EncodeToString(buf.Bytes())})
+	response := request(r, c, "POST", "/api/plugins", string(raw))
+	if strings.Contains(response.Body.String(), `"code":0`) {
+		t.Fatal("unsafe upload accepted")
 	}
 }
 
@@ -189,5 +226,69 @@ func TestPasswordChangeRevokesSession(t *testing.T) {
 	}
 	if w := request(r, c, "GET", "/api/config", ""); w.Code != 401 {
 		t.Fatal("old cookie survived password change", w.Code)
+	}
+}
+
+// Long plugin execution must not hold the configuration lock or block ordinary queries.
+func TestLongSandboxDoesNotBlockQueries(t *testing.T) {
+	r, c := setupRouter(t)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	mf := plugins.Manifest{APIVersion: 1, ID: "blocking", Name: "blocking", Version: "1.0.0", Runtime: "go", Permissions: []string{"commands.register"}, ConfigSchema: plugins.Schema{Type: "object"}}
+	if err := r.plugins.RegisterGo(mf, func() plugins.Extension { return &blockingExtension{entered: entered, release: release} }); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.plugins.Trust("blocking", "chosen", true); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		request(r, c, "POST", "/api/bots/chosen/sandbox/send", `{"content":"/wait","plugin_id":"blocking"}`)
+	}()
+	<-entered
+	queried := make(chan int, 1)
+	go func() { queried <- request(r, c, "GET", "/api/stats", "").Code }()
+	select {
+	case status := <-queried:
+		if status != 200 {
+			t.Fatal(status)
+		}
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("sandbox blocked query")
+	}
+	close(release)
+	<-done
+}
+
+type blockingExtension struct{ entered, release chan struct{} }
+
+func (b *blockingExtension) Load(_ context.Context, h plugins.Host) error {
+	return h.Command("wait", func(ctx context.Context, _ plugins.Call) error {
+		close(b.entered)
+		select {
+		case <-b.release:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+}
+func (*blockingExtension) Start(context.Context) error                     { return nil }
+func (*blockingExtension) HandleEvent(context.Context, plugins.Call) error { return nil }
+func (*blockingExtension) Stop(context.Context) error                      { return nil }
+func (*blockingExtension) Unload(context.Context) error                    { return nil }
+func TestSandboxCapturesAllMedia(t *testing.T) {
+	r, c := setupRouter(t)
+	code := `export default {id:'media',version:'1.0.0',commands:{ping:async c=>{await c.reply('text');await c.replyImage('https://example.com/a');await c.replyRichMedia('text','https://example.com/a');await c.replyMarkdown('md');await c.replyKeyboard('md','{}');await c.replyVideo('https://example.com/v');}}};`
+	if _, err := r.plugins.Store.Install(fixturePackage(t, "media", code)); err != nil {
+		t.Fatal(err)
+	}
+	r.plugins.Trust("media", "chosen", true)
+	w := request(r, c, "POST", "/api/bots/chosen/sandbox/send", `{"content":"/ping","plugin_id":"media"}`)
+	var result SandboxMessageResponse
+	if json.Unmarshal(w.Body.Bytes(), &result) != nil || len(result.Results) != 6 || len(result.Errors) != 0 {
+		t.Fatal(w.Body.String())
 	}
 }

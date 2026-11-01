@@ -103,32 +103,32 @@ func (b *Bot) reply(e events.Event) func(context.Context, events.Reply) error {
 		case events.Group:
 			switch r.Kind {
 			case "text":
-				return b.SendGroupMessage(e.GroupID, r.Text)
+				return b.sendGroupMessageContext(ctx, e.GroupID, r.Text)
 			case "image":
-				return b.SendGroupImage(e.GroupID, r.URL)
+				return b.sendGroupImageContext(ctx, e.GroupID, r.URL)
 			case "rich_media":
-				return b.SendGroupRichMedia(e.GroupID, r.Text, r.URL)
+				return b.sendGroupRichMediaContext(ctx, e.GroupID, r.Text, r.URL)
 			case "markdown":
-				return b.SendGroupMarkdown(e.GroupID, r.Text)
+				return b.sendGroupMarkdownContext(ctx, e.GroupID, r.Text)
 			case "keyboard":
-				return b.SendGroupKeyboard(e.GroupID, r.Text, r.Keyboard)
+				return b.sendGroupKeyboardContext(ctx, e.GroupID, r.Text, r.Keyboard)
 			case "video":
-				return b.SendGroupVideo(e.GroupID, r.URL)
+				return b.sendGroupVideoContext(ctx, e.GroupID, r.URL)
 			}
 		case events.C2C:
 			switch r.Kind {
 			case "text":
-				return b.SendC2CMessage(e.UserID, r.Text)
+				return b.sendC2CMessageContext(ctx, e.UserID, r.Text)
 			case "image":
-				return b.SendC2CImage(e.UserID, r.URL)
+				return b.sendC2CImageContext(ctx, e.UserID, r.URL)
 			case "rich_media":
-				return b.SendC2CRichMedia(e.UserID, r.Text, r.URL)
+				return b.sendC2CRichMediaContext(ctx, e.UserID, r.Text, r.URL)
 			case "markdown":
-				return b.SendC2CMarkdown(e.UserID, r.Text)
+				return b.sendC2CMarkdownContext(ctx, e.UserID, r.Text)
 			case "keyboard":
-				return b.SendC2CKeyboard(e.UserID, r.Text, r.Keyboard)
+				return b.sendC2CKeyboardContext(ctx, e.UserID, r.Text, r.Keyboard)
 			case "video":
-				return b.SendC2CVideo(e.UserID, r.URL)
+				return b.sendC2CVideoContext(ctx, e.UserID, r.URL)
 			}
 		case events.Guild, events.Direct:
 			if r.Kind == "text" {

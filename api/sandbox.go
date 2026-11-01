@@ -6,7 +6,6 @@ import (
 	"github.com/gorilla/mux"
 	"net/http"
 	"shizukubot/events"
-	"shizukubot/plugin"
 )
 
 type SandboxMessageRequest struct {
@@ -15,10 +14,10 @@ type SandboxMessageRequest struct {
 	PluginID string `json:"plugin_id"`
 }
 type SandboxMessageResponse struct {
-	Replies    []string                 `json:"replies"`
-	Results    []events.Reply           `json:"results"`
-	Errors     []string                 `json:"errors"`
-	Executions []plugin.ExecutionResult `json:"executions"`
+	Replies    []string          `json:"replies"`
+	Results    []events.Reply    `json:"results"`
+	Errors     []string          `json:"errors"`
+	Executions []ExecutionResult `json:"executions"`
 }
 
 // SandboxSend has capture-only capabilities. It never obtains a real Bot sender.
@@ -62,26 +61,38 @@ func (r *Router) SandboxSend(w http.ResponseWriter, req *http.Request) {
 		out.Replies = append(out.Replies, s)
 		return nil
 	}
-	adapter := &plugin.LegacyAdapter{Engine: r.engine, LogDebug: r.logManager.Debug}
-	// Use a separate bus: production subscribers and reply capabilities are never exposed.
-	bus := events.NewBus()
-	bus.Subscribe(events.Filter{BotID: botID}, func(ctx context.Context, e events.Event) error {
-		var err error
-		out.Executions, err = adapter.Run(ctx, e, body.PluginID)
-		return err
-	})
-	if err := bus.Publish(req.Context(), e); err != nil {
-		out.Errors = append(out.Errors, "legacy execution failed")
-		r.logManager.Error(botID, "sandbox legacy execution failed")
+	list, err := r.plugins.Packages()
+	if err != nil {
+		InternalErrorResponse(w, "plugin store unavailable")
+		return
 	}
+	for _, p := range list {
+		if body.PluginID != "" && p.Manifest.ID != body.PluginID {
+			continue
+		}
+		settings := r.plugins.Config(p.Manifest.ID, botID)
+		if body.PluginID == "" && !settings.Enabled {
+			continue
+		}
+		err := r.plugins.Debug(req.Context(), p.Manifest.ID, e, nil)
+		status := "completed"
+		if err != nil {
+			status = "failed"
+			out.Errors = append(out.Errors, p.Manifest.ID+": "+err.Error())
+		}
+		out.Executions = append(out.Executions, ExecutionResult{PluginID: p.Manifest.ID, Status: status})
+	}
+	if body.PluginID != "" && len(out.Executions) == 0 {
+		out.Errors = append(out.Errors, "plugin not found")
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(out)
 }
-func (r *Router) SandboxPlugins(w http.ResponseWriter, req *http.Request) {
-	plugins := r.pluginStore.List()
-	if plugins == nil {
-		plugins = []*plugin.Plugin{}
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(plugins)
+
+type ExecutionResult struct {
+	PluginID string `json:"plugin_id"`
+	Status   string `json:"status"`
 }
+
+func (r *Router) SandboxPlugins(w http.ResponseWriter, req *http.Request) { r.GetPlugins(w, req) }

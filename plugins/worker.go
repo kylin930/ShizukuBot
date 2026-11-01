@@ -138,9 +138,9 @@ func (w *Worker) Start(ctx context.Context) (Registration, error) {
 func (w *Worker) Handle(ctx context.Context, c Call) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	command, args, _ := ParseCommand(c.Event.Message)
+	command, args, _ := ParseCommand(CommandText(c.Event))
 	e := c.Event
-	payload := map[string]any{"event": map[string]any{"botId": e.BotID, "eventType": e.Type, "messageId": e.MessageID, "source": e.Source, "userId": e.UserID, "groupId": e.GroupID, "channelId": e.ChannelID, "guildId": e.GuildID, "message": e.Message}, "command": command, "args": args}
+	payload := map[string]any{"event": map[string]any{"botId": e.BotID, "eventType": e.Type, "messageId": e.MessageID, "source": e.Source, "userId": e.UserID, "groupId": e.GroupID, "channelId": e.ChannelID, "guildId": e.GuildID, "message": e.Message, "botMentionIds": mentionIDs(e)}, "command": command, "args": args}
 	_, err := w.request(ctx, "event", payload, &c)
 	if err != nil {
 		w.kill()

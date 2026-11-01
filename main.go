@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"flag"
 	"fmt"
 	"mime"
 	"net/http"
 	"os"
 	"os/signal"
+	"shizukubot/migration"
 	"syscall"
 	"time"
 
@@ -16,6 +19,13 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "migrate-legacy" {
+		if err := migrateCLI(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	// 注册常见 MIME 类型，防止 Windows 注册表缺少映射
 	mime.AddExtensionType(".css", "text/css; charset=utf-8")
 	mime.AddExtensionType(".js", "application/javascript; charset=utf-8")
@@ -104,6 +114,11 @@ func main() {
 	fmt.Printf("\n📢 Received signal: %s, shutting down gracefully...\n", sig)
 
 	botManager.StopAll()
+	pluginCtx, pluginCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := router.Close(pluginCtx); err != nil {
+		fmt.Println("plugin shutdown failed")
+	}
+	pluginCancel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -120,4 +135,29 @@ func main() {
 	}
 
 	fmt.Println("✅ ShizukuBot has been stopped")
+}
+
+func migrateCLI(args []string) error {
+	flags := flag.NewFlagSet("migrate-legacy", flag.ContinueOnError)
+	apply := flags.Bool("apply", false, "back up and generate disabled code plugins")
+	dry := flags.Bool("dry-run", false, "detect only; default")
+	rollback := flags.String("rollback", "", "rollback an unmodified migration backup (stop host first)")
+	source := flags.String("source", "data/plugins", "legacy directory")
+	custom := flags.String("custom-nodes", "data/custom_nodes", "legacy custom node directory")
+	destination := flags.String("destination", "data/code-plugins", "new plugin directory")
+	backups := flags.String("backups", "data/legacy-backups", "verified backup directory")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *apply && *dry {
+		return fmt.Errorf("choose apply or dry-run")
+	}
+	if *rollback != "" {
+		return migration.Rollback(*rollback, *destination)
+	}
+	report, err := migration.Run(migration.Options{Source: *source, CustomNodes: *custom, Destination: *destination, Backups: *backups, Apply: *apply})
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(os.Stdout).Encode(report)
 }

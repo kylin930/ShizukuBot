@@ -40,9 +40,7 @@ upload.py
 Gensokyo-main/
 ShizukuBot/
 
-# 注意：botgo-master/ 和 litegraph.js-release/ 必须保留
-# - botgo-master/ 是 go.mod replace 指向的本地依赖，编译必需
-# - litegraph.js-release/ 是 webui 运行时静态资源，运行必需
+# botgo-master/ is the pinned local SDK dependency.
 
 # ===== IDE / 工具 =====
 .arts/
@@ -54,7 +52,7 @@ ShizukuBot/
 *.swo
 *~
 
-# ===== Node.js（预防性，webui 为纯静态资源）=====
+# ===== Node.js development =====
 node_modules/
 npm-debug.log*
 yarn-debug.log*

@@ -100,9 +100,11 @@ func errorResponse(w http.ResponseWriter, code int, message string) {
 // getConfigHandler 返回客户端需要的配置（OSS 地址等）
 func getConfigHandler(w http.ResponseWriter, req *http.Request) {
 	successResponse(w, map[string]interface{}{
-		"oss_base":   config.OSS.PublicBase,
-		"page_size":  50,
-		"volume_max": 300,
+		"plugin_format":          "legacy-unsupported",
+		"installation_supported": false,
+		"oss_base":               config.OSS.PublicBase,
+		"page_size":              50,
+		"volume_max":             300,
 	})
 }
 

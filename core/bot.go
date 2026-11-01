@@ -107,11 +107,15 @@ func (b *Bot) IsRunning() bool {
 }
 
 func (b *Bot) SendGroupMessage(groupID, content string) error {
+	return b.sendGroupMessageContext(b.requestContext(), groupID, content)
+}
+
+func (b *Bot) sendGroupMessageContext(ctx context.Context, groupID, content string) error {
 	msg := &dto.MessageToCreate{
 		Content: content,
 	}
 
-	if _, err := b.OpenAPI.PostGroupMessage(context.Background(), groupID, msg); err != nil {
+	if _, err := b.OpenAPI.PostGroupMessage(ctx, groupID, msg); err != nil {
 		b.logError("failed to send group message: %v", err)
 		return err
 	}
@@ -122,11 +126,15 @@ func (b *Bot) SendGroupMessage(groupID, content string) error {
 }
 
 func (b *Bot) SendC2CMessage(userID, content string) error {
+	return b.sendC2CMessageContext(b.requestContext(), userID, content)
+}
+
+func (b *Bot) sendC2CMessageContext(ctx context.Context, userID, content string) error {
 	msg := &dto.MessageToCreate{
 		Content: content,
 	}
 
-	if _, err := b.OpenAPI.PostC2CMessage(context.Background(), userID, msg); err != nil {
+	if _, err := b.OpenAPI.PostC2CMessage(ctx, userID, msg); err != nil {
 		b.logError("failed to send C2C message: %v", err)
 		return err
 	}
@@ -155,9 +163,13 @@ func parseDataURL(imageURL string) string {
 }
 
 func (b *Bot) SendGroupImage(groupID, imageURL string) error {
+	return b.sendGroupImageContext(b.requestContext(), groupID, imageURL)
+}
+
+func (b *Bot) sendGroupImageContext(ctx context.Context, groupID, imageURL string) error {
 	// data: URL 走 base64 直传（无需公网），http(s) URL 走腾讯回源
 	if b64 := parseDataURL(imageURL); b64 != "" {
-		return b.sendGroupImageDataViaSDK(groupID, b64)
+		return b.sendGroupImageDataViaSDKContext(ctx, groupID, b64)
 	}
 
 	uploadMsg := &dto.RichMediaMessage{
@@ -165,7 +177,7 @@ func (b *Bot) SendGroupImage(groupID, imageURL string) error {
 		URL:        imageURL,
 		SrvSendMsg: false,
 	}
-	resp, err := b.OpenAPI.PostGroupMessage(context.Background(), groupID, uploadMsg)
+	resp, err := b.OpenAPI.PostGroupMessage(ctx, groupID, uploadMsg)
 	if err != nil {
 		b.logError("failed to upload group image: %v", err)
 		return err
@@ -175,7 +187,7 @@ func (b *Bot) SendGroupImage(groupID, imageURL string) error {
 		MsgType: dto.RichMediaMsg,
 		Media:   &dto.MediaInfo{FileInfo: resp.FileInfo},
 	}
-	if _, err := b.OpenAPI.PostGroupMessage(context.Background(), groupID, msg); err != nil {
+	if _, err := b.OpenAPI.PostGroupMessage(ctx, groupID, msg); err != nil {
 		b.logError("failed to send group image: %v", err)
 		return err
 	}
@@ -188,12 +200,16 @@ func (b *Bot) SendGroupImage(groupID, imageURL string) error {
 // sendGroupImageDataViaSDK 用打补丁后的 RichMediaMessage.FileData 直传 base64 到 /v2/groups/{id}/files，
 // 拿到 file_info 后再以 msg_type=7 发送图片消息。替代了原先手写 resty multipart 的 SendGroupImageData。
 func (b *Bot) sendGroupImageDataViaSDK(groupID, base64NoHeader string) error {
+	return b.sendGroupImageDataViaSDKContext(b.requestContext(), groupID, base64NoHeader)
+}
+
+func (b *Bot) sendGroupImageDataViaSDKContext(ctx context.Context, groupID, base64NoHeader string) error {
 	uploadMsg := &dto.RichMediaMessage{
 		FileType:   1,
 		FileData:   base64NoHeader,
 		SrvSendMsg: false,
 	}
-	resp, err := b.OpenAPI.PostGroupMessage(context.Background(), groupID, uploadMsg)
+	resp, err := b.OpenAPI.PostGroupMessage(ctx, groupID, uploadMsg)
 	if err != nil {
 		b.logError("failed to upload group image (base64): %v", err)
 		return err
@@ -203,7 +219,7 @@ func (b *Bot) sendGroupImageDataViaSDK(groupID, base64NoHeader string) error {
 		MsgType: dto.RichMediaMsg,
 		Media:   &dto.MediaInfo{FileInfo: resp.FileInfo},
 	}
-	if _, err := b.OpenAPI.PostGroupMessage(context.Background(), groupID, msg); err != nil {
+	if _, err := b.OpenAPI.PostGroupMessage(ctx, groupID, msg); err != nil {
 		b.logError("failed to send group image (base64): %v", err)
 		return err
 	}
@@ -214,6 +230,10 @@ func (b *Bot) sendGroupImageDataViaSDK(groupID, base64NoHeader string) error {
 }
 
 func (b *Bot) SendGroupImageData(groupID string, imageData []byte) error {
+	return b.sendGroupImageDataContext(b.requestContext(), groupID, imageData)
+}
+
+func (b *Bot) sendGroupImageDataContext(ctx context.Context, groupID string, imageData []byte) error {
 	token, err := b.TokenSource.Token()
 	if err != nil {
 		b.logError("failed to get access token: %v", err)
@@ -223,7 +243,7 @@ func (b *Bot) SendGroupImageData(groupID string, imageData []byte) error {
 	domain := constant.APIDomain
 	url := fmt.Sprintf("%s/v2/groups/%s/files", domain, groupID)
 
-	resp, err := b.restyClient.R().
+	resp, err := b.restyClient.R().SetContext(ctx).
 		SetHeader("Authorization", "QQBot "+token.AccessToken).
 		SetHeader("Content-Type", "multipart/form-data").
 		SetMultipartFormData(map[string]string{
@@ -258,7 +278,7 @@ func (b *Bot) SendGroupImageData(groupID string, imageData []byte) error {
 		MsgType: dto.RichMediaMsg,
 		Media:   &dto.MediaInfo{FileInfo: result.Data.FileInfo},
 	}
-	if _, err := b.OpenAPI.PostGroupMessage(context.Background(), groupID, msg); err != nil {
+	if _, err := b.OpenAPI.PostGroupMessage(ctx, groupID, msg); err != nil {
 		b.logError("failed to send group image: %v", err)
 		return err
 	}
@@ -269,9 +289,13 @@ func (b *Bot) SendGroupImageData(groupID string, imageData []byte) error {
 }
 
 func (b *Bot) SendC2CImage(userID, imageURL string) error {
+	return b.sendC2CImageContext(b.requestContext(), userID, imageURL)
+}
+
+func (b *Bot) sendC2CImageContext(ctx context.Context, userID, imageURL string) error {
 	// data: URL 走 base64 直传（无需公网），http(s) URL 走腾讯回源
 	if b64 := parseDataURL(imageURL); b64 != "" {
-		return b.sendC2CImageDataViaSDK(userID, b64)
+		return b.sendC2CImageDataViaSDKContext(ctx, userID, b64)
 	}
 
 	uploadMsg := &dto.RichMediaMessage{
@@ -279,7 +303,7 @@ func (b *Bot) SendC2CImage(userID, imageURL string) error {
 		URL:        imageURL,
 		SrvSendMsg: false,
 	}
-	resp, err := b.OpenAPI.PostC2CMessage(context.Background(), userID, uploadMsg)
+	resp, err := b.OpenAPI.PostC2CMessage(ctx, userID, uploadMsg)
 	if err != nil {
 		b.logError("failed to upload C2C image: %v", err)
 		return err
@@ -289,7 +313,7 @@ func (b *Bot) SendC2CImage(userID, imageURL string) error {
 		MsgType: dto.RichMediaMsg,
 		Media:   &dto.MediaInfo{FileInfo: resp.FileInfo},
 	}
-	if _, err := b.OpenAPI.PostC2CMessage(context.Background(), userID, msg); err != nil {
+	if _, err := b.OpenAPI.PostC2CMessage(ctx, userID, msg); err != nil {
 		b.logError("failed to send C2C image: %v", err)
 		return err
 	}
@@ -302,12 +326,16 @@ func (b *Bot) SendC2CImage(userID, imageURL string) error {
 // sendC2CImageDataViaSDK 用打补丁后的 RichMediaMessage.FileData 直传 base64 到 /v2/users/{id}/files，
 // 拿到 file_info 后再以 msg_type=7 发送图片消息。替代了原先手写 resty multipart 的 SendC2CImageData。
 func (b *Bot) sendC2CImageDataViaSDK(userID, base64NoHeader string) error {
+	return b.sendC2CImageDataViaSDKContext(b.requestContext(), userID, base64NoHeader)
+}
+
+func (b *Bot) sendC2CImageDataViaSDKContext(ctx context.Context, userID, base64NoHeader string) error {
 	uploadMsg := &dto.RichMediaMessage{
 		FileType:   1,
 		FileData:   base64NoHeader,
 		SrvSendMsg: false,
 	}
-	resp, err := b.OpenAPI.PostC2CMessage(context.Background(), userID, uploadMsg)
+	resp, err := b.OpenAPI.PostC2CMessage(ctx, userID, uploadMsg)
 	if err != nil {
 		b.logError("failed to upload C2C image (base64): %v", err)
 		return err
@@ -317,7 +345,7 @@ func (b *Bot) sendC2CImageDataViaSDK(userID, base64NoHeader string) error {
 		MsgType: dto.RichMediaMsg,
 		Media:   &dto.MediaInfo{FileInfo: resp.FileInfo},
 	}
-	if _, err := b.OpenAPI.PostC2CMessage(context.Background(), userID, msg); err != nil {
+	if _, err := b.OpenAPI.PostC2CMessage(ctx, userID, msg); err != nil {
 		b.logError("failed to send C2C image (base64): %v", err)
 		return err
 	}
@@ -328,6 +356,10 @@ func (b *Bot) sendC2CImageDataViaSDK(userID, base64NoHeader string) error {
 }
 
 func (b *Bot) SendC2CImageData(userID string, imageData []byte) error {
+	return b.sendC2CImageDataContext(b.requestContext(), userID, imageData)
+}
+
+func (b *Bot) sendC2CImageDataContext(ctx context.Context, userID string, imageData []byte) error {
 	token, err := b.TokenSource.Token()
 	if err != nil {
 		b.logError("failed to get access token: %v", err)
@@ -337,7 +369,7 @@ func (b *Bot) SendC2CImageData(userID string, imageData []byte) error {
 	domain := constant.APIDomain
 	url := fmt.Sprintf("%s/v2/users/%s/files", domain, userID)
 
-	resp, err := b.restyClient.R().
+	resp, err := b.restyClient.R().SetContext(ctx).
 		SetHeader("Authorization", "QQBot "+token.AccessToken).
 		SetHeader("Content-Type", "multipart/form-data").
 		SetMultipartFormData(map[string]string{
@@ -372,7 +404,7 @@ func (b *Bot) SendC2CImageData(userID string, imageData []byte) error {
 		MsgType: dto.RichMediaMsg,
 		Media:   &dto.MediaInfo{FileInfo: result.Data.FileInfo},
 	}
-	if _, err := b.OpenAPI.PostC2CMessage(context.Background(), userID, msg); err != nil {
+	if _, err := b.OpenAPI.PostC2CMessage(ctx, userID, msg); err != nil {
 		b.logError("failed to send C2C image: %v", err)
 		return err
 	}
@@ -383,6 +415,10 @@ func (b *Bot) SendC2CImageData(userID string, imageData []byte) error {
 }
 
 func (b *Bot) SendGroupRichMedia(groupID, text, imageURL string) error {
+	return b.sendGroupRichMediaContext(b.requestContext(), groupID, text, imageURL)
+}
+
+func (b *Bot) sendGroupRichMediaContext(ctx context.Context, groupID, text, imageURL string) error {
 	// 先上传图片获取 file_info。data: URL 走 base64 直传（无需公网），http(s) URL 走腾讯回源。
 	var uploadMsg *dto.RichMediaMessage
 	if b64 := parseDataURL(imageURL); b64 != "" {
@@ -398,7 +434,7 @@ func (b *Bot) SendGroupRichMedia(groupID, text, imageURL string) error {
 			SrvSendMsg: false,
 		}
 	}
-	resp, err := b.OpenAPI.PostGroupMessage(context.Background(), groupID, uploadMsg)
+	resp, err := b.OpenAPI.PostGroupMessage(ctx, groupID, uploadMsg)
 	if err != nil {
 		b.logError("failed to upload group image: %v", err)
 		return err
@@ -410,7 +446,7 @@ func (b *Bot) SendGroupRichMedia(groupID, text, imageURL string) error {
 		Content: text,
 		Media:   &dto.MediaInfo{FileInfo: resp.FileInfo},
 	}
-	if _, err := b.OpenAPI.PostGroupMessage(context.Background(), groupID, msg); err != nil {
+	if _, err := b.OpenAPI.PostGroupMessage(ctx, groupID, msg); err != nil {
 		b.logError("failed to send group rich media: %v", err)
 		return err
 	}
@@ -421,6 +457,10 @@ func (b *Bot) SendGroupRichMedia(groupID, text, imageURL string) error {
 }
 
 func (b *Bot) SendC2CRichMedia(userID, text, imageURL string) error {
+	return b.sendC2CRichMediaContext(b.requestContext(), userID, text, imageURL)
+}
+
+func (b *Bot) sendC2CRichMediaContext(ctx context.Context, userID, text, imageURL string) error {
 	// 先上传图片获取 file_info。data: URL 走 base64 直传（无需公网），http(s) URL 走腾讯回源。
 	var uploadMsg *dto.RichMediaMessage
 	if b64 := parseDataURL(imageURL); b64 != "" {
@@ -436,7 +476,7 @@ func (b *Bot) SendC2CRichMedia(userID, text, imageURL string) error {
 			SrvSendMsg: false,
 		}
 	}
-	resp, err := b.OpenAPI.PostC2CMessage(context.Background(), userID, uploadMsg)
+	resp, err := b.OpenAPI.PostC2CMessage(ctx, userID, uploadMsg)
 	if err != nil {
 		b.logError("failed to upload C2C image: %v", err)
 		return err
@@ -448,7 +488,7 @@ func (b *Bot) SendC2CRichMedia(userID, text, imageURL string) error {
 		Content: text,
 		Media:   &dto.MediaInfo{FileInfo: resp.FileInfo},
 	}
-	if _, err := b.OpenAPI.PostC2CMessage(context.Background(), userID, msg); err != nil {
+	if _, err := b.OpenAPI.PostC2CMessage(ctx, userID, msg); err != nil {
 		b.logError("failed to send C2C rich media: %v", err)
 		return err
 	}
@@ -460,11 +500,15 @@ func (b *Bot) SendC2CRichMedia(userID, text, imageURL string) error {
 
 // SendGroupMarkdown 发送群 Markdown 消息
 func (b *Bot) SendGroupMarkdown(groupID, content string) error {
+	return b.sendGroupMarkdownContext(b.requestContext(), groupID, content)
+}
+
+func (b *Bot) sendGroupMarkdownContext(ctx context.Context, groupID, content string) error {
 	msg := &dto.MessageToCreate{
 		MsgType:  dto.MarkdownMsg,
 		Markdown: &dto.Markdown{Content: content},
 	}
-	if _, err := b.OpenAPI.PostGroupMessage(context.Background(), groupID, msg); err != nil {
+	if _, err := b.OpenAPI.PostGroupMessage(ctx, groupID, msg); err != nil {
 		b.logError("failed to send group markdown: %v", err)
 		return err
 	}
@@ -475,11 +519,15 @@ func (b *Bot) SendGroupMarkdown(groupID, content string) error {
 
 // SendC2CMarkdown 发送 C2C Markdown 消息
 func (b *Bot) SendC2CMarkdown(userID, content string) error {
+	return b.sendC2CMarkdownContext(b.requestContext(), userID, content)
+}
+
+func (b *Bot) sendC2CMarkdownContext(ctx context.Context, userID, content string) error {
 	msg := &dto.MessageToCreate{
 		MsgType:  dto.MarkdownMsg,
 		Markdown: &dto.Markdown{Content: content},
 	}
-	if _, err := b.OpenAPI.PostC2CMessage(context.Background(), userID, msg); err != nil {
+	if _, err := b.OpenAPI.PostC2CMessage(ctx, userID, msg); err != nil {
 		b.logError("failed to send C2C markdown: %v", err)
 		return err
 	}
@@ -490,6 +538,10 @@ func (b *Bot) SendC2CMarkdown(userID, content string) error {
 
 // SendGroupKeyboard 发送群 Markdown + 按钮消息
 func (b *Bot) SendGroupKeyboard(groupID, markdown, keyboardJSON string) error {
+	return b.sendGroupKeyboardContext(b.requestContext(), groupID, markdown, keyboardJSON)
+}
+
+func (b *Bot) sendGroupKeyboardContext(ctx context.Context, groupID, markdown, keyboardJSON string) error {
 	var kb keyboard.MessageKeyboard
 	if err := json.Unmarshal([]byte(keyboardJSON), &kb); err != nil {
 		return fmt.Errorf("解析按钮配置失败: %w", err)
@@ -499,7 +551,7 @@ func (b *Bot) SendGroupKeyboard(groupID, markdown, keyboardJSON string) error {
 		Markdown: &dto.Markdown{Content: markdown},
 		Keyboard: &kb,
 	}
-	if _, err := b.OpenAPI.PostGroupMessage(context.Background(), groupID, msg); err != nil {
+	if _, err := b.OpenAPI.PostGroupMessage(ctx, groupID, msg); err != nil {
 		b.logError("failed to send group keyboard: %v", err)
 		return err
 	}
@@ -510,6 +562,10 @@ func (b *Bot) SendGroupKeyboard(groupID, markdown, keyboardJSON string) error {
 
 // SendC2CKeyboard 发送 C2C Markdown + 按钮消息
 func (b *Bot) SendC2CKeyboard(userID, markdown, keyboardJSON string) error {
+	return b.sendC2CKeyboardContext(b.requestContext(), userID, markdown, keyboardJSON)
+}
+
+func (b *Bot) sendC2CKeyboardContext(ctx context.Context, userID, markdown, keyboardJSON string) error {
 	var kb keyboard.MessageKeyboard
 	if err := json.Unmarshal([]byte(keyboardJSON), &kb); err != nil {
 		return fmt.Errorf("解析按钮配置失败: %w", err)
@@ -519,7 +575,7 @@ func (b *Bot) SendC2CKeyboard(userID, markdown, keyboardJSON string) error {
 		Markdown: &dto.Markdown{Content: markdown},
 		Keyboard: &kb,
 	}
-	if _, err := b.OpenAPI.PostC2CMessage(context.Background(), userID, msg); err != nil {
+	if _, err := b.OpenAPI.PostC2CMessage(ctx, userID, msg); err != nil {
 		b.logError("failed to send C2C keyboard: %v", err)
 		return err
 	}
@@ -530,12 +586,16 @@ func (b *Bot) SendC2CKeyboard(userID, markdown, keyboardJSON string) error {
 
 // SendGroupVideo 发送群视频消息
 func (b *Bot) SendGroupVideo(groupID, videoURL string) error {
+	return b.sendGroupVideoContext(b.requestContext(), groupID, videoURL)
+}
+
+func (b *Bot) sendGroupVideoContext(ctx context.Context, groupID, videoURL string) error {
 	uploadMsg := &dto.RichMediaMessage{
 		FileType:   2, // 2=视频
 		URL:        videoURL,
 		SrvSendMsg: false,
 	}
-	resp, err := b.OpenAPI.PostGroupMessage(context.Background(), groupID, uploadMsg)
+	resp, err := b.OpenAPI.PostGroupMessage(ctx, groupID, uploadMsg)
 	if err != nil {
 		b.logError("failed to upload group video: %v", err)
 		return err
@@ -544,7 +604,7 @@ func (b *Bot) SendGroupVideo(groupID, videoURL string) error {
 		MsgType: dto.RichMediaMsg,
 		Media:   &dto.MediaInfo{FileInfo: resp.FileInfo},
 	}
-	if _, err := b.OpenAPI.PostGroupMessage(context.Background(), groupID, msg); err != nil {
+	if _, err := b.OpenAPI.PostGroupMessage(ctx, groupID, msg); err != nil {
 		b.logError("failed to send group video: %v", err)
 		return err
 	}
@@ -555,12 +615,16 @@ func (b *Bot) SendGroupVideo(groupID, videoURL string) error {
 
 // SendC2CVideo 发送 C2C 视频消息
 func (b *Bot) SendC2CVideo(userID, videoURL string) error {
+	return b.sendC2CVideoContext(b.requestContext(), userID, videoURL)
+}
+
+func (b *Bot) sendC2CVideoContext(ctx context.Context, userID, videoURL string) error {
 	uploadMsg := &dto.RichMediaMessage{
 		FileType:   2, // 2=视频
 		URL:        videoURL,
 		SrvSendMsg: false,
 	}
-	resp, err := b.OpenAPI.PostC2CMessage(context.Background(), userID, uploadMsg)
+	resp, err := b.OpenAPI.PostC2CMessage(ctx, userID, uploadMsg)
 	if err != nil {
 		b.logError("failed to upload C2C video: %v", err)
 		return err
@@ -569,7 +633,7 @@ func (b *Bot) SendC2CVideo(userID, videoURL string) error {
 		MsgType: dto.RichMediaMsg,
 		Media:   &dto.MediaInfo{FileInfo: resp.FileInfo},
 	}
-	if _, err := b.OpenAPI.PostC2CMessage(context.Background(), userID, msg); err != nil {
+	if _, err := b.OpenAPI.PostC2CMessage(ctx, userID, msg); err != nil {
 		b.logError("failed to send C2C video: %v", err)
 		return err
 	}
@@ -610,4 +674,13 @@ func (b *Bot) ConfigSnapshot() config.BotConfig {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return config.BotConfig{ID: b.ID, Name: b.Name, AppID: b.AppID, AppSecret: b.AppSecret, Mode: b.Mode, Enabled: b.Enabled, Plugins: append([]string(nil), b.PluginIDs...), CommandPrefix: b.CommandPrefix, AdminUsers: append([]string(nil), b.AdminUsers...)}
+}
+
+func (b *Bot) requestContext() context.Context {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.ctx != nil {
+		return b.ctx
+	}
+	return context.Background()
 }

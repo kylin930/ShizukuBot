@@ -1,310 +1,178 @@
 package api
 
 import (
-	"crypto/rand"
-	"encoding/hex"
+	"context"
+	"encoding/base64"
 	"encoding/json"
-	"net/http"
-	"time"
-
 	"github.com/gorilla/mux"
-
-	"shizukubot/plugin"
+	"net/http"
+	"shizukubot/plugins"
+	"time"
 )
 
-type PluginExport struct {
-	ID          string          `json:"id"`
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	BotID       string          `json:"bot_id"`
-	Graph       json.RawMessage `json:"graph"`
-	CustomNodes json.RawMessage `json:"custom_nodes,omitempty"`
-}
-
 type PluginInfo struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Enabled     bool   `json:"enabled"`
-	BotID       string `json:"bot_id"`
-	CreatedAt   int64  `json:"created_at"`
-	UpdatedAt   int64  `json:"updated_at"`
+	plugins.Manifest
+	Enabled   bool             `json:"enabled"`
+	Instances []plugins.Status `json:"instances"`
+	Config    map[string]any   `json:"config,omitempty"`
+	Trusted   bool             `json:"trusted"`
 }
 
-type PluginDetail struct {
-	ID          string          `json:"id"`
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	Enabled     bool            `json:"enabled"`
-	BotID       string          `json:"bot_id"`
-	Graph       json.RawMessage `json:"graph"`
-	CustomNodes json.RawMessage `json:"custom_nodes,omitempty"`
-	CreatedAt   int64           `json:"created_at"`
-	UpdatedAt   int64           `json:"updated_at"`
+func (r *Router) pluginInfo(p plugins.Package, bot string) PluginInfo {
+	out := PluginInfo{Manifest: p.Manifest, Instances: []plugins.Status{}}
+	for _, s := range r.plugins.Statuses() {
+		if s.PluginID == p.Manifest.ID {
+			out.Instances = append(out.Instances, s)
+			out.Enabled = out.Enabled || s.Enabled
+		}
+	}
+	if bot != "" {
+		settings := r.plugins.Config(p.Manifest.ID, bot)
+		out.Config = settings.Config
+		out.Trusted = settings.Trusted
+		out.Enabled = settings.Enabled
+	}
+	return out
 }
-
 func (r *Router) GetPlugins(w http.ResponseWriter, req *http.Request) {
-	plugins := r.pluginStore.List()
-	result := make([]PluginInfo, 0, len(plugins))
-	for _, p := range plugins {
-		result = append(result, PluginInfo{
-			ID:          p.ID,
-			Name:        p.Name,
-			Description: p.Description,
-			Enabled:     p.Enabled,
-			BotID:       p.BotID,
-			CreatedAt:   p.CreatedAt,
-			UpdatedAt:   p.UpdatedAt,
-		})
+	list, err := r.plugins.Packages()
+	if err != nil {
+		InternalErrorResponse(w, "plugin store unavailable")
+		return
 	}
-	SuccessResponse(w, result)
+	out := []PluginInfo{}
+	for _, p := range list {
+		out = append(out, r.pluginInfo(p, req.URL.Query().Get("bot_id")))
+	}
+	SuccessResponse(w, out)
 }
-
 func (r *Router) GetPlugin(w http.ResponseWriter, req *http.Request) {
-	vars := mux.Vars(req)
-	id := vars["id"]
-
-	p, ok := r.pluginStore.Get(id)
-	if !ok {
-		NotFoundResponse(w, "plugin not found")
+	id := mux.Vars(req)["id"]
+	list, err := r.plugins.Packages()
+	if err != nil {
+		InternalErrorResponse(w, "plugin store unavailable")
 		return
 	}
-
-	result := PluginDetail{
-		ID:          p.ID,
-		Name:        p.Name,
-		Description: p.Description,
-		Enabled:     p.Enabled,
-		BotID:       p.BotID,
-		Graph:       p.Graph,
-		CustomNodes: p.CustomNodes,
-		CreatedAt:   p.CreatedAt,
-		UpdatedAt:   p.UpdatedAt,
+	for _, p := range list {
+		if p.Manifest.ID == id {
+			SuccessResponse(w, r.pluginInfo(p, req.URL.Query().Get("bot_id")))
+			return
+		}
 	}
-	SuccessResponse(w, result)
+	NotFoundResponse(w, "plugin not found")
 }
-
 func (r *Router) CreatePlugin(w http.ResponseWriter, req *http.Request) {
-	var reqBody struct {
-		Name        string          `json:"name"`
-		Description string          `json:"description"`
-		BotID       string          `json:"bot_id"`
-		Graph       json.RawMessage `json:"graph"`
-		CustomNodes json.RawMessage `json:"custom_nodes"`
+	var body struct {
+		Package string `json:"package_base64"`
 	}
-
-	if err := json.NewDecoder(req.Body).Decode(&reqBody); err != nil {
-		BadRequestResponse(w, "invalid request body")
+	if json.NewDecoder(req.Body).Decode(&body) != nil {
+		BadRequestResponse(w, "invalid package request")
 		return
 	}
-
-	if reqBody.Name == "" {
-		BadRequestResponse(w, "name is required")
+	data, err := base64.StdEncoding.DecodeString(body.Package)
+	if err != nil {
+		BadRequestResponse(w, "invalid package encoding")
 		return
 	}
-
-	if reqBody.Graph == nil {
-		reqBody.Graph = json.RawMessage(`{"nodes":[],"links":[]}`)
-	}
-
-	now := time.Now().Unix()
-	var random [16]byte
-	if _, err := rand.Read(random[:]); err != nil {
-		InternalErrorResponse(w, "id generation failed")
+	p, err := r.plugins.Store.Install(data)
+	if err != nil {
+		BadRequestResponse(w, "package rejected: "+err.Error())
 		return
 	}
-	id := "plugin_" + hex.EncodeToString(random[:])
-
-	p := &plugin.Plugin{
-		ID:          id,
-		Name:        reqBody.Name,
-		Description: reqBody.Description,
-		Enabled:     false,
-		BotID:       reqBody.BotID,
-		Graph:       reqBody.Graph,
-		CustomNodes: reqBody.CustomNodes,
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	}
-
-	if err := r.pluginStore.Save(p); err != nil {
-		InternalErrorResponse(w, "failed to save plugin")
-		return
-	}
-
-	result := PluginDetail{
-		ID:          p.ID,
-		Name:        p.Name,
-		Description: p.Description,
-		Enabled:     p.Enabled,
-		BotID:       p.BotID,
-		Graph:       p.Graph,
-		CustomNodes: p.CustomNodes,
-		CreatedAt:   p.CreatedAt,
-		UpdatedAt:   p.UpdatedAt,
-	}
-	SuccessResponse(w, result)
+	SuccessResponse(w, r.pluginInfo(p, ""))
 }
-
 func (r *Router) UpdatePlugin(w http.ResponseWriter, req *http.Request) {
-	vars := mux.Vars(req)
-	id := vars["id"]
-
-	p, ok := r.pluginStore.Get(id)
-	if !ok {
-		NotFoundResponse(w, "plugin not found")
+	id := mux.Vars(req)["id"]
+	var body struct {
+		BotID   string         `json:"bot_id"`
+		Config  map[string]any `json:"config"`
+		Trusted *bool          `json:"trusted"`
+	}
+	if json.NewDecoder(req.Body).Decode(&body) != nil || body.BotID == "" {
+		BadRequestResponse(w, "bot_id required")
 		return
 	}
-
-	var reqBody struct {
-		Name        string          `json:"name"`
-		Description string          `json:"description"`
-		Enabled     bool            `json:"enabled"`
-		BotID       string          `json:"bot_id"`
-		Graph       json.RawMessage `json:"graph"`
-		CustomNodes json.RawMessage `json:"custom_nodes"`
+	if body.Config != nil {
+		if err := r.plugins.Configure(id, body.BotID, body.Config); err != nil {
+			BadRequestResponse(w, err.Error())
+			return
+		}
 	}
-
-	if err := json.NewDecoder(req.Body).Decode(&reqBody); err != nil {
-		BadRequestResponse(w, "invalid request body")
-		return
+	if body.Trusted != nil {
+		if !*body.Trusted {
+			ctx, cancel := context.WithTimeout(req.Context(), 3*time.Second)
+			defer cancel()
+			if err := r.plugins.Disable(ctx, id, body.BotID); err != nil {
+				InternalErrorResponse(w, "disable failed")
+				return
+			}
+		}
+		if err := r.plugins.Trust(id, body.BotID, *body.Trusted); err != nil {
+			BadRequestResponse(w, err.Error())
+			return
+		}
 	}
-
-	if reqBody.Name != "" {
-		p.Name = reqBody.Name
-	}
-	if reqBody.Description != "" {
-		p.Description = reqBody.Description
-	}
-	p.Enabled = reqBody.Enabled
-	if reqBody.BotID != "" {
-		p.BotID = reqBody.BotID
-	}
-	if reqBody.Graph != nil {
-		p.Graph = reqBody.Graph
-	}
-	if reqBody.CustomNodes != nil {
-		p.CustomNodes = reqBody.CustomNodes
-	}
-	p.UpdatedAt = time.Now().Unix()
-
-	if err := r.pluginStore.Save(p); err != nil {
-		InternalErrorResponse(w, "failed to save plugin")
-		return
-	}
-
-	result := PluginDetail{
-		ID:          p.ID,
-		Name:        p.Name,
-		Description: p.Description,
-		Enabled:     p.Enabled,
-		BotID:       p.BotID,
-		Graph:       p.Graph,
-		CustomNodes: p.CustomNodes,
-		CreatedAt:   p.CreatedAt,
-		UpdatedAt:   p.UpdatedAt,
-	}
-	SuccessResponse(w, result)
+	SuccessResponse(w, map[string]any{"restart_required": true})
 }
-
-func (r *Router) DeletePlugin(w http.ResponseWriter, req *http.Request) {
-	vars := mux.Vars(req)
-	id := vars["id"]
-
-	if err := r.pluginStore.Delete(id); err != nil {
-		BadRequestResponse(w, "invalid plugin operation")
+func (r *Router) TogglePlugin(w http.ResponseWriter, req *http.Request) {
+	id := mux.Vars(req)["id"]
+	var body struct {
+		BotID   string `json:"bot_id"`
+		Enabled bool   `json:"enabled"`
+		Trust   bool   `json:"trust"`
+	}
+	if json.NewDecoder(req.Body).Decode(&body) != nil || body.BotID == "" {
+		BadRequestResponse(w, "bot_id required")
 		return
 	}
-
+	ctx, cancel := context.WithTimeout(req.Context(), 4*time.Second)
+	defer cancel()
+	var err error
+	if body.Enabled {
+		err = r.plugins.Enable(ctx, id, body.BotID, body.Trust)
+	} else {
+		err = r.plugins.Disable(ctx, id, body.BotID)
+	}
+	if err != nil {
+		BadRequestResponse(w, err.Error())
+		return
+	}
+	SuccessResponse(w, r.plugins.Statuses())
+}
+func (r *Router) RestartPlugin(w http.ResponseWriter, req *http.Request) {
+	var body struct {
+		BotID string `json:"bot_id"`
+	}
+	if json.NewDecoder(req.Body).Decode(&body) != nil || body.BotID == "" {
+		BadRequestResponse(w, "bot_id required")
+		return
+	}
+	ctx, cancel := context.WithTimeout(req.Context(), 4*time.Second)
+	defer cancel()
+	if err := r.plugins.Restart(ctx, mux.Vars(req)["id"], body.BotID); err != nil {
+		BadRequestResponse(w, err.Error())
+		return
+	}
 	SuccessResponse(w, nil)
 }
-
-func (r *Router) TogglePlugin(w http.ResponseWriter, req *http.Request) {
-	vars := mux.Vars(req)
-	id := vars["id"]
-
-	p, ok := r.pluginStore.Get(id)
-	if !ok {
-		NotFoundResponse(w, "plugin not found")
+func (r *Router) DeletePlugin(w http.ResponseWriter, req *http.Request) {
+	ctx, cancel := context.WithTimeout(req.Context(), 4*time.Second)
+	defer cancel()
+	if err := r.plugins.Remove(ctx, mux.Vars(req)["id"]); err != nil {
+		BadRequestResponse(w, "plugin removal failed")
 		return
 	}
-
-	p.Enabled = !p.Enabled
-	p.UpdatedAt = time.Now().Unix()
-
-	if err := r.pluginStore.Save(p); err != nil {
-		InternalErrorResponse(w, "failed to save plugin")
-		return
-	}
-
-	result := PluginInfo{
-		ID:          p.ID,
-		Name:        p.Name,
-		Description: p.Description,
-		Enabled:     p.Enabled,
-		BotID:       p.BotID,
-		CreatedAt:   p.CreatedAt,
-		UpdatedAt:   p.UpdatedAt,
-	}
-	SuccessResponse(w, result)
+	SuccessResponse(w, nil)
 }
-
-func (r *Router) SavePluginGraph(w http.ResponseWriter, req *http.Request) {
-	vars := mux.Vars(req)
-	id := vars["id"]
-
-	p, ok := r.pluginStore.Get(id)
-	if !ok {
-		NotFoundResponse(w, "plugin not found")
-		return
-	}
-
-	var graph json.RawMessage
-	if err := json.NewDecoder(req.Body).Decode(&graph); err != nil {
-		BadRequestResponse(w, "invalid graph data")
-		return
-	}
-
-	p.Graph = graph
-	p.UpdatedAt = time.Now().Unix()
-
-	if err := r.pluginStore.Save(p); err != nil {
-		InternalErrorResponse(w, "failed to save plugin")
-		return
-	}
-
-	SuccessResponse(w, map[string]interface{}{
-		"id":         p.ID,
-		"updated_at": p.UpdatedAt,
-	})
-}
-
 func (r *Router) ExportPlugin(w http.ResponseWriter, req *http.Request) {
-	vars := mux.Vars(req)
-	id := vars["id"]
-
-	p, ok := r.pluginStore.Get(id)
-	if !ok {
-		NotFoundResponse(w, "plugin not found")
-		return
-	}
-
-	exportData := PluginExport{
-		ID:          p.ID,
-		Name:        p.Name,
-		Description: p.Description,
-		BotID:       p.BotID,
-		Graph:       p.Graph,
-		CustomNodes: p.CustomNodes,
-	}
-
-	data, err := json.MarshalIndent(exportData, "", "  ")
+	id := mux.Vars(req)["id"]
+	data, err := r.plugins.Store.Export(id)
 	if err != nil {
-		InternalErrorResponse(w, "failed to marshal plugin")
+		BadRequestResponse(w, "package export failed")
 		return
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Content-Disposition", "attachment; filename=\""+p.ID+".json\"")
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+id+`.zip"`)
 	w.Write(data)
 }
+func (r *Router) Close(ctx context.Context) error { return r.plugins.Close(ctx) }

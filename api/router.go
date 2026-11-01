@@ -17,7 +17,7 @@ import (
 
 	"shizukubot/config"
 	"shizukubot/core"
-	"shizukubot/plugin"
+	"shizukubot/plugins"
 	"shizukubot/webhook"
 	"shizukubot/webui"
 )
@@ -31,7 +31,7 @@ type tempImage struct {
 }
 
 func init() {
-	plugin.SaveTempImage = SaveTempImage
+	// Temporary images are transport resources, independent of plugin execution.
 
 	go func() {
 		for {
@@ -79,60 +79,64 @@ func serveTempImage(w http.ResponseWriter, r *http.Request) {
 
 type Router struct {
 	*mux.Router
-	botManager  *core.BotManager
-	config      *config.Config
-	configPath  string
-	logManager  *core.LogManager
-	templates   *template.Template
-	pluginStore *plugin.PluginStore
-	engine      *plugin.ExecutionEngine
-	configMu    sync.RWMutex
-	botOps      sync.Map
+	botManager *core.BotManager
+	config     *config.Config
+	configPath string
+	logManager *core.LogManager
+	templates  *template.Template
+	plugins    *plugins.Manager
+	configMu   sync.RWMutex
+	botOps     sync.Map
 }
 
 func NewRouter(botManager *core.BotManager, cfg *config.Config, cfgPath string, logManager *core.LogManager) *Router {
-	pluginStore, err := plugin.NewPluginStore("data/plugins")
+	store, err := plugins.NewStore("data/code-plugins")
 	if err != nil {
-		panic("plugin store initialization failed")
+		panic("code plugin store initialization failed")
 	}
+	manager, err := plugins.NewManager(store, botManager.Events(), "data/plugin-data")
+	if err != nil {
+		panic("plugin settings initialization failed")
+	}
+	manager.Log = func(bot, id, msg string) { logManager.Error(bot, "plugin "+id+": "+msg) }
 
 	if err := webui.InitUserStore("data/users.json"); err != nil {
 		panic("failed to init user store: " + err.Error())
 	}
 
 	r := &Router{
-		Router:      mux.NewRouter(),
-		botManager:  botManager,
-		config:      cfg,
-		configPath:  cfgPath,
-		logManager:  logManager,
-		templates:   template.Must(template.ParseFiles("webui/templates/login.html")),
-		pluginStore: pluginStore,
-		engine:      plugin.NewExecutionEngine(pluginStore),
+		Router:     mux.NewRouter(),
+		botManager: botManager,
+		config:     cfg,
+		configPath: cfgPath,
+		logManager: logManager,
+		templates:  template.Must(template.ParseFiles("webui/templates/login.html")),
+		plugins:    manager,
 	}
 
 	webui.ConfigureCookies(cfg.WebUI.SecureCookies)
 	webui.InitSessionStore(cfg.WebUI.Password)
 
-	botManager.SetCommandProvider(r.engine.GetCommandList)
-	adapter := &plugin.LegacyAdapter{Engine: r.engine, LogDebug: logManager.Debug}
+	botManager.SetCommandProvider(manager.Commands)
 	botManager.Events().Subscribe(events.Filter{}, func(ctx context.Context, e events.Event) error {
 		if bot, ok := botManager.GetBot(e.BotID); ok {
 			if e.MessageID != "" {
 				bot.Stats.IncReceived()
-				if e.GroupID != "" {
-					bot.Stats.RecordGroup(e.GroupID)
-				}
-				if e.UserID != "" {
-					bot.Stats.RecordUser(e.UserID)
-				}
+				bot.Stats.RecordGroup(e.GroupID)
+				bot.Stats.RecordUser(e.UserID)
 			}
-			if bot.HandleBuiltinCommand(ctx, e) {
-				return nil
-			}
+			bot.HandleBuiltinCommand(ctx, e)
 		}
-		return adapter.Handle(ctx, e)
+		return nil
 	})
+	bots := []string{}
+	for _, bot := range botManager.GetAllBots() {
+		bots = append(bots, bot.ID)
+	}
+	if err := manager.Restore(context.Background(), bots); err != nil {
+		logManager.Error("", "one or more trusted plugin instances could not start")
+	}
+
 	r.registerRoutes()
 
 	if cfg.WebUI.Host != "" {
@@ -142,10 +146,6 @@ func NewRouter(botManager *core.BotManager, cfg *config.Config, cfgPath string, 
 	return r
 }
 
-func (r *Router) GetEngine() *plugin.ExecutionEngine {
-	return r.engine
-}
-
 func (r *Router) registerRoutes() {
 	r.HandleFunc("/login", r.LoginPageHandler).Methods(http.MethodGet)
 	r.HandleFunc("/login", webui.LoginHandler).Methods(http.MethodPost)
@@ -153,7 +153,6 @@ func (r *Router) registerRoutes() {
 	r.HandleFunc("/logout", webui.AuthMiddleware(http.HandlerFunc(webui.LogoutHandler)).ServeHTTP).Methods(http.MethodPost)
 
 	r.PathPrefix("/static/").Handler(correctMIME(http.StripPrefix("/static/", http.FileServer(http.Dir("webui/static")))))
-	r.PathPrefix("/litegraph/").Handler(correctMIME(http.StripPrefix("/litegraph/", http.FileServer(http.Dir("litegraph.js-release")))))
 	r.HandleFunc("/temp/images/{id}", serveTempImage).Methods(http.MethodGet)
 
 	r.HandleFunc("/webhook/{botID}", webhook.NewHandler(r.botManager).ServeHTTP).Methods(http.MethodPost)
@@ -203,18 +202,11 @@ func (r *Router) registerRoutes() {
 	api.HandleFunc("/plugins/{id}", r.UpdatePlugin).Methods(http.MethodPut)
 	api.HandleFunc("/plugins/{id}", r.DeletePlugin).Methods(http.MethodDelete)
 	api.HandleFunc("/plugins/{id}/toggle", r.TogglePlugin).Methods(http.MethodPost)
-	api.HandleFunc("/plugins/{id}/graph", r.SavePluginGraph).Methods(http.MethodPut)
+	api.HandleFunc("/plugins/{id}/restart", r.RestartPlugin).Methods(http.MethodPost)
 	api.HandleFunc("/plugins/{id}/export", r.ExportPlugin).Methods(http.MethodGet)
 
 	api.HandleFunc("/bots/{id}/sandbox/send", r.SandboxSend).Methods(http.MethodPost)
 	api.HandleFunc("/bots/{id}/sandbox/plugins", r.SandboxPlugins).Methods(http.MethodGet)
-
-	api.HandleFunc("/custom-nodes", r.GetCustomNodes).Methods(http.MethodGet)
-
-	// 代码转换相关 API
-	api.HandleFunc("/code/scan", r.ScanCode).Methods(http.MethodPost)
-	api.HandleFunc("/code/code2graph", r.CodeToGraph).Methods(http.MethodPost)
-	api.HandleFunc("/code/graph2code", r.GraphToCode).Methods(http.MethodPost)
 
 	protected := r.PathPrefix("/").Subrouter()
 	protected.HandleFunc("/", r.IndexHandler).Methods(http.MethodGet)
@@ -277,12 +269,4 @@ func (c *contentTypeFixer) Write(b []byte) (int, error) {
 		c.headerFixed = true
 	}
 	return c.ResponseWriter.Write(b)
-}
-
-func (r *Router) GetCustomNodes(w http.ResponseWriter, req *http.Request) {
-	if plugin.GlobalCustomNodeStore == nil {
-		SuccessResponse(w, []interface{}{})
-		return
-	}
-	SuccessResponse(w, plugin.GlobalCustomNodeStore.List())
 }

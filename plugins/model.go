@@ -42,6 +42,9 @@ func (m Manifest) Validate() error {
 	if m.Runtime == "javascript" && (!filepath.IsLocal(m.Entry) || strings.Contains(m.Entry, "\\") || !strings.HasSuffix(m.Entry, ".js")) {
 		return errors.New("entry must be a local built JavaScript file")
 	}
+	if m.ConfigSchema.Type != "" && m.ConfigSchema.Type != "object" {
+		return errors.New("config schema root must be object")
+	}
 	for _, p := range m.Permissions {
 		switch p {
 		case "events.subscribe", "commands.register", "message.send", "config.read", "state.read", "state.write", "log.write":

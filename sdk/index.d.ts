@@ -8,7 +8,7 @@ export interface Context<C = Record<string,unknown>> {
   readonly botId:string;readonly eventType:EventType;readonly messageId:string;
   readonly source:'group'|'c2c'|'guild'|'direct'|'';readonly userId:string;
   readonly groupId:string;readonly channelId:string;readonly guildId:string;readonly message:string;
-  readonly args:readonly string[];readonly config:Readonly<C>;readonly state:State;
+  readonly botMentionIds:readonly string[];readonly args:readonly string[];readonly config:Readonly<C>;readonly state:State;
   reply(value:string|Reply):Promise<void>;
   replyImage(url:string):Promise<void>;
   replyRichMedia(text:string,url:string):Promise<void>;

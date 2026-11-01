@@ -537,277 +537,64 @@ async function sendApiRequest() {
 
 // ==================== 插件页 ====================
 let currentPlugin = null;
-let graphCanvas = null;
-let graph = null;
-
+let pluginBotId = '';
 async function renderPlugins(container) {
-    container.innerHTML = `
-        <div class="page-title">插件</div>
-        <div class="plugins-layout">
-            <!-- 插件列表 -->
-            <div class="plugins-sidebar">
-                <mdui-button variant="filled" icon="add" id="create-plugin-btn" full-width>新建插件</mdui-button>
-                <mdui-list id="plugins-list" style="margin-top:16px">
-                    <div style="padding:16px;color:var(--mdui-color-on-surface-variant)">加载中...</div>
-                </mdui-list>
-            </div>
-            <!-- 流程图编辑器 -->
-            <div class="plugin-editor">
-                <div class="editor-toolbar" id="editor-toolbar" style="display:none">
-                    <mdui-text-field label="插件名称" id="plugin-name" style="width:200px"></mdui-text-field>
-                    <mdui-text-field label="描述" id="plugin-desc" style="flex:1"></mdui-text-field>
-                    <mdui-button variant="filled" icon="save" id="save-plugin-btn">保存</mdui-button>
-                    <mdui-button variant="outlined" icon="download" id="export-plugin-btn">导出</mdui-button>
-                    <mdui-switch label="启用" id="plugin-enabled"></mdui-switch>
-                </div>
-                <div class="editor-canvas-container" id="canvas-container">
-                    <canvas id="plugin-canvas" width="800" height="600"></canvas>
-                </div>
-            </div>
-        </div>
-    `;
-
+    container.innerHTML = `<div class="page-title">代码插件</div>
+      <mdui-card variant="outlined" style="padding:16px;margin-bottom:16px">
+        <p>安装本地代码插件 ZIP（manifest.json、dist/index.js）。安装后默认禁用，执行前请审核代码并明确确认信任。</p>
+        <input type="file" accept=".zip" id="plugin-package">
+        <mdui-button variant="filled" id="install-package">安装本地包</mdui-button>
+      </mdui-card>
+      <div class="plugins-layout"><mdui-list id="plugins-list"></mdui-list><mdui-card variant="outlined" id="plugin-details" style="padding:16px;overflow:auto">选择插件查看信息、按 Bot 配置与运行状态。</mdui-card></div>`;
+    document.getElementById('install-package').onclick = async () => {
+        try {
+            const file = document.getElementById('plugin-package').files[0];
+            if (!file || file.size > 1024 * 1024) throw Error('请选择不超过 1 MiB 的 ZIP 代码包');
+            const bytes = new Uint8Array(await file.arrayBuffer()); let value = '';
+            for (const byte of bytes) value += String.fromCharCode(byte);
+            const result = await apiPost('/api/plugins', {package_base64:btoa(value)});
+            if (result.code !== 0) throw Error(result.message);
+            showSnackbar('已安装，尚未信任或启用'); await loadPluginsList(); await loadPluginEditor(result.data.id);
+        } catch(error) { showSnackbar(error.message); }
+    };
     await loadPluginsList();
-
-    document.getElementById('create-plugin-btn').addEventListener('click', createNewPlugin);
 }
-
 async function loadPluginsList() {
-    try {
-        const data = await apiGet('/api/plugins');
-        const listEl = document.getElementById('plugins-list');
-
-        if (data.code !== 0 || !data.data || data.data.length === 0) {
-            listEl.innerHTML = '<div style="padding:16px;color:var(--mdui-color-on-surface-variant)">暂无插件，点击上方按钮创建</div>';
-            return;
-        }
-
-        listEl.innerHTML = data.data.map(p => `
-            <mdui-list-item
-                headline="${escapeHtml(p.name)}"
-                description="${escapeHtml(p.description || '暂无描述')}"
-                data-plugin-id="${p.id}"
-                class="plugin-list-item ${currentPlugin && currentPlugin.id === p.id ? 'active' : ''}"
-                icon="${p.enabled ? 'check_circle' : 'radio_button_unchecked'}">
-                <mdui-button-icon slot="end-icon" icon="delete" data-delete="${p.id}"></mdui-button-icon>
-            </mdui-list-item>
-        `).join('');
-
-        // 绑定点击事件
-        listEl.querySelectorAll('.plugin-list-item').forEach(item => {
-            item.addEventListener('click', () => {
-                loadPluginEditor(item.dataset.pluginId);
-            });
-        });
-
-        // 绑定删除事件
-        listEl.querySelectorAll('[data-delete]').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                const id = btn.dataset.delete;
-                try {
-                    await mdui.confirm({
-                        headline: '删除插件',
-                        description: '确定删除此插件？此操作不可恢复。',
-                        confirmText: '删除',
-                        cancelText: '取消'
-                    });
-                    await apiDelete(`/api/plugins/${id}`);
-                    await loadPluginsList();
-                    if (currentPlugin && currentPlugin.id === id) {
-                        currentPlugin = null;
-                        resetEditor();
-                    }
-                } catch {
-                    // 用户取消
-                }
-            });
-        });
-    } catch (e) {
-        console.error('加载插件列表失败:', e);
-    }
+    const result = await apiGet('/api/plugins');
+    if (result.code !== 0) {showSnackbar(result.message);return;}
+    const list = document.getElementById('plugins-list');
+    list.innerHTML = result.data.length ? result.data.map(p=>`<mdui-list-item headline="${escapeHtml(p.name)}" description="${escapeHtml(p.runtime+' · '+p.version)}" data-plugin-id="${escapeHtml(p.id)}" icon="extension"></mdui-list-item>`).join('') : '<mdui-list-item headline="暂无代码插件"></mdui-list-item>';
+    list.querySelectorAll('[data-plugin-id]').forEach(item=>item.onclick=()=>loadPluginEditor(item.dataset.pluginId));
 }
-
-async function createNewPlugin() {
-    let name;
-    try {
-        name = await mdui.prompt({
-            headline: '新建插件',
-            description: '请输入插件名称：',
-            confirmText: '创建',
-            cancelText: '取消',
-            textFieldOptions: { value: '新插件' }
-        });
-    } catch {
-        return;
-    }
-    if (!name) return;
-
-    try {
-        const data = await apiPost('/api/plugins', {
-            name: name,
-            description: '',
-            bot_id: '*',
-            graph: { nodes: [], links: [] }
-        });
-
-        if (data.code === 0) {
-            await loadPluginsList();
-            loadPluginEditor(data.data.id);
-        } else {
-            showSnackbar('创建失败: ' + data.message);
-        }
-    } catch (e) {
-        showSnackbar('创建失败: ' + e.message);
-    }
-}
-
-async function loadPluginEditor(pluginId) {
-    try {
-        const data = await apiGet(`/api/plugins/${pluginId}`);
-        if (data.code !== 0) {
-            showSnackbar('加载插件失败');
-            return;
-        }
-
-        currentPlugin = data.data;
-        document.getElementById('editor-toolbar').style.display = 'flex';
-        document.getElementById('plugin-name').value = currentPlugin.name;
-        document.getElementById('plugin-desc').value = currentPlugin.description || '';
-        document.getElementById('plugin-enabled').checked = currentPlugin.enabled;
-
-        // 初始化 LiteGraph（先注册自定义节点再配置图）
-        initGraphEditor(currentPlugin.graph, currentPlugin.custom_nodes);
-
-        // 更新列表激活状态
-        document.querySelectorAll('.plugin-list-item').forEach(item => {
-            item.classList.toggle('active', item.dataset.pluginId === pluginId);
-        });
-
-        // 绑定保存按钮
-        document.getElementById('save-plugin-btn').onclick = saveCurrentPlugin;
-        document.getElementById('export-plugin-btn').onclick = exportCurrentPlugin;
-        document.getElementById('plugin-enabled').onchange = togglePluginEnabled;
-    } catch (e) {
-        console.error('加载插件编辑器失败', e);
-    }
-}
-
-function initGraphEditor(graphData, pluginCustomNodes) {
-    const canvas = document.getElementById('plugin-canvas');
-    const container = document.getElementById('canvas-container');
-
-    canvas.width = container.clientWidth;
-    canvas.height = container.clientHeight;
-
-    // 先加载全局自定义节点
-    var loadGlobal = typeof loadCustomNodes === 'function' ? loadCustomNodes() : Promise.resolve();
-
-    // 再注册插件内嵌的自定义节点
-    loadGlobal.then(function() {
-        if (pluginCustomNodes && Array.isArray(pluginCustomNodes)) {
-            for (var i = 0; i < pluginCustomNodes.length; i++) {
-                if (typeof registerCustomNodeType === 'function') {
-                    registerCustomNodeType(pluginCustomNodes[i]);
-                }
-            }
-        }
-
-        // 最后再配置图，确保所有节点类型都已注册
-        graph = new LGraph();
-
-        graphCanvas = new LGraphCanvas(canvas, graph, {
-            autoresize: true,
-            allow_interaction: true,
-            read_only: false
-        });
-
-        graphCanvas.background_image = null;
-
-        if (graphData && graphData.nodes) {
-            graph.configure(graphData);
-        }
-
-        canvas.addEventListener('contextmenu', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            return false;
-        });
-
-        canvas.addEventListener('mousedown', function(e) {
-            if (e.button === 2) {
-                e.preventDefault();
-                if (graphCanvas) {
-                    LGraphCanvas.active_canvas = graphCanvas;
-                    graphCanvas.adjustMouseEvent(e);
-                    const node = graph.getNodeOnPos(e.canvasX, e.canvasY, graphCanvas.visible_nodes, 5);
-                    if (typeof graphCanvas.processContextMenu === 'function') {
-                        graphCanvas.processContextMenu(node, e);
-                    }
-                }
-            }
-        });
-
-        graphCanvas.showSearchBox = () => {};
-    });
-}
-
-async function saveCurrentPlugin() {
-    if (!currentPlugin) return;
-
-    currentPlugin.name = document.getElementById('plugin-name').value;
-    currentPlugin.description = document.getElementById('plugin-desc').value;
-
-    // 导出图数据
-    const graphData = graph.serialize();
-
-    try {
-        const data = await apiPut(`/api/plugins/${currentPlugin.id}/graph`, graphData);
-        if (data.code === 0) {
-            showSnackbar('插件已保存');
-            await loadPluginsList();
-        } else {
-            showSnackbar('保存失败: ' + data.message);
-        }
-    } catch (e) {
-        showSnackbar('保存失败: ' + e.message);
-    }
-}
-
-async function togglePluginEnabled() {
-    if (!currentPlugin) return;
-
-    try {
-        await apiPost(`/api/plugins/${currentPlugin.id}/toggle`, {});
-        currentPlugin.enabled = !currentPlugin.enabled;
-        document.getElementById('plugin-enabled').checked = currentPlugin.enabled;
-        await loadPluginsList();
-    } catch (e) {
-        showSnackbar('切换状态失败: ' + e.message);
-    }
-}
-
-async function exportCurrentPlugin() {
-    if (!currentPlugin) return;
-
-    try {
-        const response = await fetch(`/api/plugins/${currentPlugin.id}/export`);
-        if (!response.ok) {
-            throw new Error('导出失败');
-        }
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${currentPlugin.name}_${currentPlugin.id}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
-        showSnackbar('插件导出成功');
-    } catch (e) {
-        showSnackbar('导出失败: ' + e.message);
-    }
+async function loadPluginEditor(id) {
+    const result = await apiGet(`/api/plugins/${encodeURIComponent(id)}?bot_id=${encodeURIComponent(pluginBotId)}`);
+    if (result.code !== 0) {showSnackbar(result.message);return;}
+    currentPlugin=result.data;
+    const p=currentPlugin, host=document.getElementById('plugin-details');
+    host.innerHTML=`<h2>${escapeHtml(p.name)} <small>${escapeHtml(p.version)}</small></h2><p>${escapeHtml(p.description||'')}</p>
+      <p>运行时：${escapeHtml(p.runtime)} · 权限：${escapeHtml(p.permissions.join(', '))}</p>
+      <mdui-text-field id="plugin-bot" label="Bot ID（可输入独立调试标识）" value="${escapeHtml(pluginBotId)}"></mdui-text-field>
+      <p>配置与状态按 Bot 隔离。修改 Bot ID 后会读取该 Bot 的配置。</p>
+      <mdui-text-field id="plugin-config" label="插件配置 JSON" rows="7"></mdui-text-field>
+      <details><summary>配置规范</summary><pre>${escapeHtml(JSON.stringify(p.config_schema,null,2))}</pre></details>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin:16px 0">
+        <mdui-button id="trust-plugin" variant="outlined">${p.trusted?'已确认信任':'审核后确认信任'}</mdui-button>
+        <mdui-button id="save-code-config">保存配置</mdui-button>
+        <mdui-button id="enable-code-plugin" variant="filled">${p.enabled?'禁用':'启用'}</mdui-button>
+        <mdui-button id="restart-code-plugin">重启 / 重载</mdui-button>
+        <mdui-button id="export-code-plugin">导出代码包</mdui-button>
+        <mdui-button id="delete-code-plugin">卸载</mdui-button>
+      </div><h3>实例与错误</h3><pre>${escapeHtml(JSON.stringify(p.instances,null,2))}</pre>`;
+    document.getElementById('plugin-config').value=JSON.stringify(p.config||{},null,2);
+    document.getElementById('plugin-bot').onchange=async event=>{pluginBotId=event.target.value.trim();await loadPluginEditor(id);};
+    const run=action=>async()=>{try{if(!pluginBotId)throw Error('请填写 Bot ID');await action();await loadPluginEditor(id);await loadPluginsList();}catch(error){showSnackbar(error.message);}};
+    const checked=async promise=>{const value=await promise;if(value.code!==0)throw Error(value.message);return value;};
+    document.getElementById('trust-plugin').onclick=run(async()=>{await mdui.confirm({headline:'确认执行信任',description:'普通 Node 进程可访问文件与网络。仅信任经过审核的代码；独立进程不是安全沙盒。',confirmText:'信任此插件',cancelText:'取消'});await checked(apiPut(`/api/plugins/${id}`,{bot_id:pluginBotId,trusted:true}));});
+    document.getElementById('save-code-config').onclick=run(async()=>{const config=JSON.parse(document.getElementById('plugin-config').value);await checked(apiPut(`/api/plugins/${id}`,{bot_id:pluginBotId,config}));if(p.enabled)await checked(apiPost(`/api/plugins/${id}/restart`,{bot_id:pluginBotId}));showSnackbar('配置已保存');});
+    document.getElementById('enable-code-plugin').onclick=run(async()=>{if(!p.trusted)throw Error('请先审核代码并确认信任');await checked(apiPost(`/api/plugins/${id}/toggle`,{bot_id:pluginBotId,enabled:!p.enabled}));});
+    document.getElementById('restart-code-plugin').onclick=run(()=>checked(apiPost(`/api/plugins/${id}/restart`,{bot_id:pluginBotId})));
+    document.getElementById('export-code-plugin').onclick=()=>{const a=document.createElement('a');a.href=`/api/plugins/${id}/export`;a.download=id+'.zip';a.click();};
+    document.getElementById('delete-code-plugin').onclick=async()=>{try{await mdui.confirm({headline:'卸载插件',description:'请先导出代码包。插件配置和持久状态会保留。',confirmText:'卸载',cancelText:'取消'});await checked(apiDelete(`/api/plugins/${id}`));currentPlugin=null;document.getElementById('plugin-details').textContent='已卸载';await loadPluginsList();}catch(error){showSnackbar(error.message||'已取消');}};
 }
 
 // ==================== 配置页 ====================
@@ -1548,7 +1335,9 @@ let sandboxPluginsCache = [];
 
 async function renderSandbox(container) {
     // 沙盒使用虚拟机器人，不依赖生产环境的真实机器人
-    const sandboxBotId = 'sandbox';
+    let sandboxBotId = pluginBotId;
+ if (!sandboxBotId) {try {sandboxBotId = await mdui.prompt({headline:'沙盒 Bot ID',description:'填写实际 Bot ID 或独立调试标识'});pluginBotId=sandboxBotId.trim();} catch {return;} }
+ if(!sandboxBotId)return;
 
     // 加载插件列表
     try {
@@ -1622,6 +1411,7 @@ async function renderSandbox(container) {
             });
             const data = await resp.json();
 
+            if (data.errors?.length) data.errors.forEach(error=>sandboxMessages.push({type:'error',content:error}));
             if (data.replies && data.replies.length > 0) {
                 data.replies.forEach(reply => {
                     sandboxMessages.push({ type: 'bot', content: reply });
