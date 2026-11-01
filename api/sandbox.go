@@ -40,11 +40,15 @@ func (r *Router) SandboxSend(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	botID := mux.Vars(req)["id"]
-	if botID == "" {
+	if botID == "" || len(botID) > 256 {
 		BadRequestResponse(w, "bot id required")
 		return
 	}
 	out := SandboxMessageResponse{Replies: []string{}, Results: []events.Reply{}, Errors: []string{}, Independent: body.Independent, ConfigurationSource: "saved_with_defaults"}
+	if body.Independent {
+		out.ConfigurationSource = "defaults"
+	}
+
 	e := events.Event{BotID: botID, Type: "c2c_message", Source: events.C2C, Message: body.Content, UserID: "debug-user"}
 	if bot, ok := r.botManager.GetBot(botID); ok && !body.Independent {
 		e.PluginIDs = bot.ConfigSnapshot().Plugins
@@ -77,7 +81,7 @@ func (r *Router) SandboxSend(w http.ResponseWriter, req *http.Request) {
 		}
 		settings := r.plugins.Config(p.Manifest.ID, botID)
 		_, realBot := r.botManager.GetBot(botID)
-		if body.PluginID == "" && (!settings.Enabled || (realBot && !body.Independent && !r.pluginAllowed(p.Manifest.ID, botID))) {
+		if body.PluginID == "" && (body.Independent || !settings.Enabled || (realBot && !body.Independent && !r.pluginAllowed(p.Manifest.ID, botID))) {
 			continue
 		}
 		started := time.Now()

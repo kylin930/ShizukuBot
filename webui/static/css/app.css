@@ -764,3 +764,22 @@ mdui-list {
     .plugin-toolbar mdui-select { flex:0 1 420px; width:100%; }
     .plugin-facts { grid-template-columns:max-content minmax(0,1fr) max-content minmax(0,1fr); }
 }
+.sandbox-toolbar { display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin:16px 0; }
+.sandbox-toolbar mdui-select, .sandbox-toolbar mdui-text-field { flex:1 1 220px; min-width:0; }
+.sandbox-toolbar [hidden] { display:none; }
+.sandbox-workspace { display:flex; flex-direction:column; min-width:0; }
+.sandbox-chat { min-height:240px; max-height:60vh; overflow:auto; padding:16px; }
+.sandbox-compose { display:flex; align-items:center; gap:12px; padding:16px; border-top:1px solid rgb(var(--mdui-color-outline-variant)); }
+.sandbox-compose mdui-text-field { flex:1; min-width:0; }
+.sandbox-turn { margin:16px 0 24px; overflow-wrap:anywhere; }
+.sandbox-request { background:rgb(var(--mdui-color-primary-container)); color:rgb(var(--mdui-color-on-primary-container)); border-radius:12px; padding:12px; margin:8px 0; white-space:pre-wrap; }
+.sandbox-reply { padding:12px; margin:8px 0; border-left:3px solid rgb(var(--mdui-color-primary)); background:rgb(var(--mdui-color-surface-container)); }
+.sandbox-reply strong, .sandbox-reply small, .sandbox-reply a { display:block; }
+.sandbox-reply div { white-space:pre-wrap; }
+.sandbox-reply pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:240px; overflow:auto; }
+.sandbox-execution { padding:8px 0; }
+@media (max-width:600px) {
+    .sandbox-compose { flex-direction:column; align-items:stretch; }
+    .sandbox-toolbar mdui-select, .sandbox-toolbar mdui-text-field { flex-basis:100%; }
+    .plugin-facts { grid-template-columns:max-content minmax(0,1fr); }
+}

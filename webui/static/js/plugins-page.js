@@ -5,7 +5,7 @@
     const stateNames = {running: '正常', unloaded: '未加载', error: '异常'};
     async function renderPlugins(container) {
         const scope = U.begin(container);
-        let bots = [], plugins = [], botId = '', selectedId = U.context.pluginId, editor = null, revision = 0;
+        let bots = [], plugins = [], botId = '', selectedId = U.context.pluginId, editor = null, revision = 0, loadError = '';
         const feedback = U.el('div', {id: 'plugin-feedback'});
         const toolbar = U.el('div', {class: 'plugin-toolbar'});
         const body = U.el('div', {class: 'plugin-workspace'});
@@ -49,11 +49,11 @@
                 plugins = data;
                 U.notice(feedback, botId ? '' : '尚无机器人。可查看已编译插件；请先在机器人页添加真实 Bot 后管理配置和启停。');
                 if (!plugins.some(plugin => plugin.id === selectedId)) selectedId = plugins[0]?.id || '';
-                editor = null; renderList(); renderDetail();
+                editor = null; renderList(); renderDetail(); return true;
             } catch (error) {
                 if (!scope.current() || version !== revision) return;
-                U.notice(feedback, U.errorMessage(error), 'error');
-                detail.replaceChildren(U.text('p', '未能加载当前 Bot 的插件数据。请检查权限或重试。'));
+                loadError = U.errorMessage(error); U.notice(feedback, loadError, 'error');
+                detail.replaceChildren(U.text('p', '未能加载当前 Bot 的插件数据。请检查权限或重试。')); return false;
             }
         }
         function renderList() {
@@ -136,7 +136,9 @@
                 if (!scope.current()) return;
                 editor = null;
                 scope.busy = false; U.controlsBusy(container, false);
-                await reload(false);
+                const refreshed = await reload(false);
+                if (!scope.current()) return;
+                if (!refreshed) {U.notice(feedback, '操作已提交，但刷新实际状态失败：' + loadError + (result?.restart_error ? '；插件实例重启失败：' + result.restart_error : ''), 'error'); return;}
                 if (result?.restart_error) U.notice(feedback, '配置已保存，但重启插件实例失败：' + result.restart_error, 'error');
                 else U.notice(feedback, action === 'save' ? (result.applied ? '配置已保存，插件实例已应用新配置。' : '配置已保存。') : '操作完成，已刷新实际状态。', 'success');
             } catch (error) {if (scope.current()) U.notice(feedback, U.errorMessage(error), 'error');}

@@ -114,7 +114,7 @@ function renderPage() {
             case '/api-test':  renderApiTest(content); break;
             case '/plugins':   window.PluginPages.renderPlugins(content); break;
             case '/community': renderCommunity(content); break;
-            case '/sandbox':   renderSandbox(content); break;
+            case '/sandbox':   window.SandboxPage.render(content); break;
             case '/config':    renderConfig(content); break;
             case '/users':     renderUsers(content); break;
             case '/about':     renderAbout(content); break;
@@ -1269,134 +1269,6 @@ function showBotConfigDialog(botId, container) {
             ]
         });
     });
-}
-
-// ==================== 沙盒页面 ====================
-let sandboxType = 'c2c';
-let sandboxMessages = [];
-let sandboxPluginId = ''; // 空表示执行所有启用插件
-let sandboxPluginsCache = [];
-
-async function renderSandbox(container) {
-    // 沙盒使用虚拟机器人，不依赖生产环境的真实机器人
-    let sandboxBotId = window.PluginUI.context.botId;
- if (!sandboxBotId) {try {sandboxBotId = await mdui.prompt({headline:'沙盒 Bot ID',description:'填写实际 Bot ID 或独立调试标识'});window.PluginUI.context.botId=sandboxBotId.trim();} catch {return;} }
- if(!sandboxBotId)return;
-
-    // 加载插件列表
-    try {
-        const resp = await fetch(`/api/bots/${sandboxBotId}/sandbox/plugins`);
-        const data = await resp.json();
-        sandboxPluginsCache = Array.isArray(data) ? data : (data.data || []);
-    } catch (e) {
-        sandboxPluginsCache = [];
-    }
-
-    const pluginOptions = [
-        { id: '', name: '全部启用插件' },
-        ...sandboxPluginsCache.map(p => ({ id: p.id, name: p.name || p.id, enabled: p.enabled }))
-    ];
-
-    container.innerHTML = `
-        <div class="page-title">沙盒测试</div>
-        <div style="margin-bottom:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-            <mdui-segmented-button-group value="${sandboxType}" id="sandbox-type-select">
-                <mdui-segmented-button value="c2c">私聊</mdui-segmented-button>
-                <mdui-segmented-button value="group">群聊</mdui-segmented-button>
-            </mdui-segmented-button-group>
-            <mdui-select id="sandbox-plugin-select" label="测试插件" value="${sandboxPluginId}" style="min-width:200px">
-                ${pluginOptions.map(p => `<mdui-menu-item value="${escapeHtml(p.id)}">${escapeHtml(p.name)}${p.enabled === false ? ' (未启用)' : ''}</mdui-menu-item>`).join('')}
-            </mdui-select>
-            <mdui-button variant="outlined" icon="delete_sweep" id="sandbox-clear">清空对话</mdui-button>
-        </div>
-        <mdui-card variant="outlined" style="display:flex;flex-direction:column;height:calc(100vh - 220px);overflow:hidden">
-            <div id="sandbox-chat" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px">
-                ${sandboxMessages.length === 0 ? '<div style="text-align:center;color:var(--mdui-color-on-surface-variant);padding:40px 0">在下方输入消息测试机器人回复</div>' : ''}
-                ${sandboxMessages.map(m => renderSandboxMessage(m)).join('')}
-            </div>
-            <mdui-divider></mdui-divider>
-            <div style="padding:12px;display:flex;gap:8px;align-items:center">
-                <mdui-text-field id="sandbox-input" label="输入消息" variant="outlined" style="flex:1" rows="1"></mdui-text-field>
-                <mdui-button-icon icon="send" id="sandbox-send"></mdui-button-icon>
-            </div>
-        </mdui-card>
-    `;
-
-    const typeSelect = document.getElementById('sandbox-type-select');
-    const pluginSelect = document.getElementById('sandbox-plugin-select');
-    const chatArea = document.getElementById('sandbox-chat');
-    const inputField = document.getElementById('sandbox-input');
-    const sendBtn = document.getElementById('sandbox-send');
-    const clearBtn = document.getElementById('sandbox-clear');
-
-    typeSelect?.addEventListener('change', (e) => { sandboxType = e.target.value; });
-    pluginSelect?.addEventListener('change', (e) => { sandboxPluginId = e.target.value; });
-
-    clearBtn?.addEventListener('click', () => {
-        sandboxMessages = [];
-        renderSandbox(container);
-    });
-
-    const sendMessage = async () => {
-        const content = inputField?.value?.trim();
-        if (!content) return;
-
-        sandboxMessages.push({ type: 'user', content, sandboxType });
-        inputField.value = '';
-
-        chatArea.innerHTML = sandboxMessages.map(m => renderSandboxMessage(m)).join('');
-        chatArea.scrollTop = chatArea.scrollHeight;
-
-        try {
-            const resp = await fetch(`/api/bots/${sandboxBotId}/sandbox/send`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type: sandboxType, content, plugin_id: sandboxPluginId })
-            });
-            const data = await resp.json();
-
-            if (data.errors?.length) data.errors.forEach(error=>sandboxMessages.push({type:'error',content:error}));
-            if (data.replies && data.replies.length > 0) {
-                data.replies.forEach(reply => {
-                    sandboxMessages.push({ type: 'bot', content: reply });
-                });
-            } else {
-                sandboxMessages.push({ type: 'bot', content: '(无回复)' });
-            }
-        } catch (e) {
-            sandboxMessages.push({ type: 'error', content: '请求失败: ' + e.message });
-        }
-
-        chatArea.innerHTML = sandboxMessages.map(m => renderSandboxMessage(m)).join('');
-        chatArea.scrollTop = chatArea.scrollHeight;
-    };
-
-    sendBtn?.addEventListener('click', sendMessage);
-    inputField?.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            sendMessage();
-        }
-    });
-}
-
-function renderSandboxMessage(msg) {
-    if (msg.type === 'user') {
-        const label = msg.sandboxType === 'group' ? '群聊' : '私聊';
-        return `<div style="align-self:flex-end;max-width:70%">
-            <div style="font-size:12px;color:var(--mdui-color-on-surface-variant);text-align:right;margin-bottom:4px">${label} - 数据</div>
-            <div style="background:var(--mdui-color-primary-container);color:var(--mdui-color-on-primary-container);padding:10px 14px;border-radius:12px 12px 4px 12px;word-break:break-word">${escapeHtml(msg.content)}</div>
-        </div>`;
-    } else if (msg.type === 'bot') {
-        return `<div style="align-self:flex-start;max-width:70%">
-            <div style="font-size:12px;color:var(--mdui-color-on-surface-variant);margin-bottom:4px">机器人</div>
-            <div style="background:var(--mdui-color-secondary-container);color:var(--mdui-color-on-secondary-container);padding:10px 14px;border-radius:12px 12px 12px 4px;word-break:break-word">${escapeHtml(msg.content)}</div>
-        </div>`;
-    } else {
-        return `<div style="align-self:center;max-width:80%">
-            <div style="background:var(--mdui-color-error-container);color:var(--mdui-color-on-error-container);padding:8px 14px;border-radius:8px;font-size:13px;word-break:break-word">${escapeHtml(msg.content)}</div>
-        </div>`;
-    }
 }
 
 // ==================== 工具函数 ====================
