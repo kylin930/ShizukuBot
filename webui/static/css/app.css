@@ -750,3 +750,17 @@ mdui-list {
 @media (prefers-reduced-motion:reduce) {
     .page-content, .page-content.fade-in, .page-content.fade-out { transition:none; transform:none; }
 }
+.schema-body { display:flex; flex-direction:column; gap:16px; }
+.schema-field { min-width:0; padding:8px 0; }
+.schema-field .schema-field { padding-left:16px; border-left:2px solid rgb(var(--mdui-color-outline-variant)); }
+.schema-label { font-weight:500; overflow-wrap:anywhere; }
+.schema-field p { margin:6px 0; font-size:13px; }
+.schema-field small { display:block; margin:4px 0; overflow-wrap:anywhere; }
+.schema-field mdui-text-field, .schema-field mdui-select { display:block; width:100%; margin-top:8px; }
+.schema-array-item { margin:12px 0; padding:8px; border:1px solid rgb(var(--mdui-color-outline-variant)); border-radius:8px; }
+.schema-editor .plugin-notice { white-space:pre-wrap; }
+.plugin-spinner { width:20px; height:20px; margin-right:12px; vertical-align:middle; }
+@media (min-width:901px) {
+    .plugin-toolbar mdui-select { flex:0 1 420px; width:100%; }
+    .plugin-facts { grid-template-columns:max-content minmax(0,1fr) max-content minmax(0,1fr); }
+}
