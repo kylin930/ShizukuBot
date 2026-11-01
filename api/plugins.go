@@ -293,4 +293,6 @@ func (r *Router) ExportPlugin(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Disposition", `attachment; filename="`+id+`-data.json"`)
 	w.Write(data)
 }
-func (r *Router) Close(ctx context.Context) error { return r.plugins.Close(ctx) }
+func (r *Router) Close(ctx context.Context) error {
+	return errors.Join(r.rules.Close(ctx), r.plugins.Close(ctx))
+}
