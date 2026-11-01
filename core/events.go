@@ -9,29 +9,33 @@ import (
 	"shizukubot/transport/qq"
 )
 
-// Start creates one lifecycle per bot. Disabled bots are deliberately left stopped.
+// Start creates one lifecycle per bot; StartAll skips configured disabled bots.
 func (b *Bot) Start() error {
 	b.lifecycle.Lock()
 	defer b.lifecycle.Unlock()
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	if b.Running {
+		b.mu.Unlock()
 		return fmt.Errorf("bot %s is already running", b.ID)
 	}
-	b.ctx, b.cancel = context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
+	b.ctx, b.cancel = ctx, cancel
+	source, api, mode := b.TokenSource, b.OpenAPI, b.Mode
+	b.mu.Unlock()
 	// The SDK token source refreshes lazily on Token calls. Avoid its global
 	// background refresh helper, which logs credentials and can panic on failures.
-	if _, err := b.TokenSource.Token(); err != nil {
-		b.cancel()
+	if _, err := source.Token(); err != nil {
+		cancel()
 		return errors.New("bot authentication failed")
 	}
+	b.mu.Lock()
 	b.Running = true
 	b.Enabled = true
-	if b.Mode == "websocket" {
-		g := &qq.Gateway{Tokens: b.TokenSource, Intents: dto.IntentGroupMessages | dto.IntentGuildAtMessage | dto.IntentDirectMessages | dto.IntentInteraction,
-			Discover: func(ctx context.Context) (*dto.WebsocketAP, error) { return b.OpenAPI.WS(ctx, nil, "") },
+	b.mu.Unlock()
+	if mode == "websocket" {
+		g := &qq.Gateway{Tokens: source, Intents: dto.IntentGroupMessages | dto.IntentGuildAtMessage | dto.IntentDirectMessages | dto.IntentInteraction,
+			Discover: func(ctx context.Context) (*dto.WebsocketAP, error) { return api.WS(ctx, nil, "") },
 			Dispatch: b.HandlePayload, OnError: func(err error) { b.logError("%v", err) }}
-		ctx := b.ctx
 		b.workers.Add(1)
 		go func() {
 			defer b.workers.Done()
@@ -43,7 +47,7 @@ func (b *Bot) Start() error {
 			b.mu.Unlock()
 		}()
 	}
-	b.logInfo("bot started in %s mode", b.Mode)
+	b.logInfo("bot started in %s mode", mode)
 	return nil
 }
 

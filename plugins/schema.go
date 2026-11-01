@@ -108,3 +108,46 @@ func (s Schema) Validate(value any) (any, error) {
 	}
 	return value, nil
 }
+
+// Check validates the supported schema dialect before any plugin code may load.
+func (s Schema) Check(depth int) error {
+	if depth > 8 || len(s.Properties) > 128 || len(s.Enum) > 64 {
+		return fmt.Errorf("schema complexity limit exceeded")
+	}
+	switch s.Type {
+	case "", "object":
+		for _, key := range s.Required {
+			if _, ok := s.Properties[key]; !ok {
+				return fmt.Errorf("required key is not declared")
+			}
+		}
+		for _, child := range s.Properties {
+			if err := child.Check(depth + 1); err != nil {
+				return err
+			}
+		}
+	case "array":
+		if s.Items == nil {
+			return fmt.Errorf("array schema requires items")
+		}
+		if err := s.Items.Check(depth + 1); err != nil {
+			return err
+		}
+	case "string", "boolean", "number", "integer":
+	default:
+		return fmt.Errorf("unsupported schema type %s", s.Type)
+	}
+	if s.Minimum != nil && s.Maximum != nil && *s.Minimum > *s.Maximum {
+		return fmt.Errorf("invalid numeric bounds")
+	}
+	if s.Default != nil {
+		var value any
+		if err := json.Unmarshal(s.Default, &value); err != nil {
+			return err
+		}
+		if _, err := s.Validate(value); err != nil {
+			return fmt.Errorf("invalid default: %w", err)
+		}
+	}
+	return nil
+}

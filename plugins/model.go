@@ -45,6 +45,9 @@ func (m Manifest) Validate() error {
 	if m.ConfigSchema.Type != "" && m.ConfigSchema.Type != "object" {
 		return errors.New("config schema root must be object")
 	}
+	if err := m.ConfigSchema.Check(0); err != nil {
+		return err
+	}
 	for _, p := range m.Permissions {
 		switch p {
 		case "events.subscribe", "commands.register", "message.send", "config.read", "state.read", "state.write", "log.write":
@@ -80,6 +83,8 @@ type State interface {
 
 // Host lets Go extensions register callbacks during Load or Start.
 type Host interface {
+	// Context remains live until Disable/Unload; use it for background resources.
+	Context() context.Context
 	Command(string, func(context.Context, Call) error) error
 	On(events.Type, func(context.Context, Call) error) error
 }

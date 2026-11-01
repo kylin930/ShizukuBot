@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,6 +36,7 @@ type Frame struct {
 // Worker is one Node process per plugin/Bot. It receives a scrubbed environment, never QQ credentials.
 type Worker struct {
 	Node, Entry, BotID string
+	Log                func(string)
 	Manifest           Manifest
 	Config             map[string]any
 	mu                 sync.Mutex
@@ -55,7 +57,9 @@ func (w *Worker) Start(ctx context.Context) (Registration, error) {
 	if node == "" {
 		node = "node"
 	}
-	check, err := exec.CommandContext(ctx, node, "--version").Output()
+	versionCommand := exec.CommandContext(ctx, node, "--version")
+	versionCommand.Env = workerEnvironment()
+	check, err := versionCommand.Output()
 	if err != nil {
 		return reg, fmt.Errorf("Node.js 24 LTS required: %w", err)
 	}
@@ -74,23 +78,22 @@ func (w *Worker) Start(ctx context.Context) (Registration, error) {
 			return reg, err
 		}
 	}
-	w.cmd = exec.Command(node, "--max-old-space-size=96", "--import", filepath.Join(w.dir, "bootstrap.mjs"), filepath.Join(w.dir, "main.mjs"))
+	w.cmd = exec.Command(node, "--max-old-space-size=96", "--import", fileModuleURL(filepath.Join(w.dir, "bootstrap.mjs")), filepath.Join(w.dir, "main.mjs"))
 	w.cmd.Dir = filepath.Dir(w.Entry)
-	for _, key := range []string{"PATH", "SystemRoot", "WINDIR", "TEMP", "TMP", "TZ"} {
-		if value, ok := os.LookupEnv(key); ok {
-			w.cmd.Env = append(w.cmd.Env, key+"="+value)
-		}
-	}
-	w.cmd.Env = append(w.cmd.Env, "NODE_NO_WARNINGS=1")
+	w.cmd.Env = workerEnvironment()
+
 	stdout, err := w.cmd.StdoutPipe()
 	if err != nil {
+		os.RemoveAll(w.dir)
 		return reg, err
 	}
 	w.input, err = w.cmd.StdinPipe()
 	if err != nil {
+		stdout.Close()
+		os.RemoveAll(w.dir)
 		return reg, err
 	}
-	w.cmd.Stderr = &discardBounded{}
+	w.cmd.Stderr = &discardBounded{log: w.Log, remaining: 16384}
 	if err = w.cmd.Start(); err != nil {
 		os.RemoveAll(w.dir)
 		return reg, err
@@ -140,7 +143,7 @@ func (w *Worker) Handle(ctx context.Context, c Call) error {
 	defer w.mu.Unlock()
 	command, args, _ := ParseCommand(CommandText(c.Event))
 	e := c.Event
-	payload := map[string]any{"event": map[string]any{"botId": e.BotID, "eventType": e.Type, "messageId": e.MessageID, "source": e.Source, "userId": e.UserID, "groupId": e.GroupID, "channelId": e.ChannelID, "guildId": e.GuildID, "message": e.Message, "botMentionIds": mentionIDs(e)}, "command": command, "args": args}
+	payload := map[string]any{"event": map[string]any{"botId": e.BotID, "eventType": e.Type, "eventId": e.EventID, "platformType": e.PlatformType, "data": e.Raw, "messageId": e.MessageID, "source": e.Source, "userId": e.UserID, "groupId": e.GroupID, "channelId": e.ChannelID, "guildId": e.GuildID, "message": e.Message, "botMentionIds": mentionIDs(e)}, "command": command, "args": args}
 	_, err := w.request(ctx, "event", payload, &c)
 	if err != nil {
 		w.kill()
@@ -292,9 +295,44 @@ func (w *Worker) Stop(ctx context.Context) error {
 }
 
 // Plugin stderr must not block or consume unbounded host memory.
-type discardBounded struct{}
+type discardBounded struct {
+	mu        sync.Mutex
+	log       func(string)
+	remaining int
+	buffer    string
+}
 
-func (*discardBounded) Write(p []byte) (int, error) { return len(p), nil }
+func (d *discardBounded) Write(p []byte) (int, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	size := len(p)
+	if d.remaining <= 0 {
+		return size, nil
+	}
+	n := len(p)
+	if n > d.remaining {
+		n = d.remaining
+	}
+	d.remaining -= n
+	d.buffer += string(p[:n])
+	for len(d.buffer) > 0 {
+		index := strings.IndexByte(d.buffer, '\n')
+		if index < 0 && len(d.buffer) < 4096 {
+			break
+		}
+		if index < 0 || index > 4096 {
+			index = 4096
+		}
+		if d.log != nil {
+			d.log(d.buffer[:index])
+		}
+		if index < len(d.buffer) && d.buffer[index] == '\n' {
+			index++
+		}
+		d.buffer = d.buffer[index:]
+	}
+	return size, nil
+}
 
 func (w *Worker) sendContext(ctx context.Context, f Frame) error {
 	done := make(chan error, 1)
@@ -307,4 +345,22 @@ func (w *Worker) sendContext(ctx context.Context, f Frame) error {
 		<-done
 		return ctx.Err()
 	}
+}
+
+func fileModuleURL(file string) string {
+	p := filepath.ToSlash(file)
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return (&url.URL{Scheme: "file", Path: p}).String()
+}
+
+func workerEnvironment() []string {
+	out := []string{"NODE_NO_WARNINGS=1"}
+	for _, key := range []string{"PATH", "SystemRoot", "WINDIR", "TEMP", "TMP", "TZ"} {
+		if value, ok := os.LookupEnv(key); ok {
+			out = append(out, key+"="+value)
+		}
+	}
+	return out
 }

@@ -543,6 +543,7 @@ async function renderPlugins(container) {
       <mdui-card variant="outlined" style="padding:16px;margin-bottom:16px">
         <p>安装本地代码插件 ZIP（manifest.json、dist/index.js）。安装后默认禁用，执行前请审核代码并明确确认信任。</p>
         <input type="file" accept=".zip" id="plugin-package">
+        <label><input type="checkbox" id="restore-plugin-data"> 从备份恢复配置与状态（仍保持禁用，已有数据不会覆盖）</label>
         <mdui-button variant="filled" id="install-package">安装本地包</mdui-button>
       </mdui-card>
       <div class="plugins-layout"><mdui-list id="plugins-list"></mdui-list><mdui-card variant="outlined" id="plugin-details" style="padding:16px;overflow:auto">选择插件查看信息、按 Bot 配置与运行状态。</mdui-card></div>`;
@@ -552,10 +553,10 @@ async function renderPlugins(container) {
             if (!file || file.size > 1024 * 1024) throw Error('请选择不超过 1 MiB 的 ZIP 代码包');
             const bytes = new Uint8Array(await file.arrayBuffer()); let value = '';
             for (const byte of bytes) value += String.fromCharCode(byte);
-            const result = await apiPost('/api/plugins', {package_base64:btoa(value)});
+            const result = await apiPost('/api/plugins', {package_base64:btoa(value),restore_data:document.getElementById('restore-plugin-data').checked});
             if (result.code !== 0) throw Error(result.message);
             showSnackbar('已安装，尚未信任或启用'); await loadPluginsList(); await loadPluginEditor(result.data.id);
-        } catch(error) { showSnackbar(error.message); }
+        } catch(error) { showSnackbar(error?.message || '已取消'); }
     };
     await loadPluginsList();
 }
@@ -572,7 +573,7 @@ async function loadPluginEditor(id) {
     currentPlugin=result.data;
     const p=currentPlugin, host=document.getElementById('plugin-details');
     host.innerHTML=`<h2>${escapeHtml(p.name)} <small>${escapeHtml(p.version)}</small></h2><p>${escapeHtml(p.description||'')}</p>
-      <p>运行时：${escapeHtml(p.runtime)} · 权限：${escapeHtml(p.permissions.join(', '))}</p>
+      <p>运行时：${escapeHtml(p.runtime)} · 权限：${escapeHtml((p.permissions||[]).join(', '))}</p>${p.runtime==='go'?'<p>此扩展编译进主程序，可启停；其源码随主程序分发，不能在这里导出或卸载。</p>':''}
       <mdui-text-field id="plugin-bot" label="Bot ID（可输入独立调试标识）" value="${escapeHtml(pluginBotId)}"></mdui-text-field>
       <p>配置与状态按 Bot 隔离。修改 Bot ID 后会读取该 Bot 的配置。</p>
       <mdui-text-field id="plugin-config" label="插件配置 JSON" rows="7"></mdui-text-field>
@@ -582,19 +583,22 @@ async function loadPluginEditor(id) {
         <mdui-button id="save-code-config">保存配置</mdui-button>
         <mdui-button id="enable-code-plugin" variant="filled">${p.enabled?'禁用':'启用'}</mdui-button>
         <mdui-button id="restart-code-plugin">重启 / 重载</mdui-button>
-        <mdui-button id="export-code-plugin">导出代码包</mdui-button>
-        <mdui-button id="delete-code-plugin">卸载</mdui-button>
+        <mdui-button id="export-code-plugin" ${p.runtime==='go'?'disabled':''}>导出代码包</mdui-button>
+        <mdui-button id="backup-code-plugin" ${p.runtime==='go'?'disabled':''}>备份代码及私有数据</mdui-button>
+        <mdui-button id="delete-code-plugin" ${p.runtime==='go'?'disabled':''}>卸载</mdui-button>
       </div><h3>实例与错误</h3><pre>${escapeHtml(JSON.stringify(p.instances,null,2))}</pre>`;
     document.getElementById('plugin-config').value=JSON.stringify(p.config||{},null,2);
     document.getElementById('plugin-bot').onchange=async event=>{pluginBotId=event.target.value.trim();await loadPluginEditor(id);};
-    const run=action=>async()=>{try{if(!pluginBotId)throw Error('请填写 Bot ID');await action();await loadPluginEditor(id);await loadPluginsList();}catch(error){showSnackbar(error.message);}};
+    const run=action=>async()=>{try{if(!pluginBotId)throw Error('请填写 Bot ID');await action();await loadPluginEditor(id);await loadPluginsList();}catch(error){showSnackbar(error?.message || '已取消');}};
     const checked=async promise=>{const value=await promise;if(value.code!==0)throw Error(value.message);return value;};
     document.getElementById('trust-plugin').onclick=run(async()=>{await mdui.confirm({headline:'确认执行信任',description:'普通 Node 进程可访问文件与网络。仅信任经过审核的代码；独立进程不是安全沙盒。',confirmText:'信任此插件',cancelText:'取消'});await checked(apiPut(`/api/plugins/${id}`,{bot_id:pluginBotId,trusted:true}));});
     document.getElementById('save-code-config').onclick=run(async()=>{const config=JSON.parse(document.getElementById('plugin-config').value);await checked(apiPut(`/api/plugins/${id}`,{bot_id:pluginBotId,config}));if(p.enabled)await checked(apiPost(`/api/plugins/${id}/restart`,{bot_id:pluginBotId}));showSnackbar('配置已保存');});
     document.getElementById('enable-code-plugin').onclick=run(async()=>{if(!p.trusted)throw Error('请先审核代码并确认信任');await checked(apiPost(`/api/plugins/${id}/toggle`,{bot_id:pluginBotId,enabled:!p.enabled}));});
     document.getElementById('restart-code-plugin').onclick=run(()=>checked(apiPost(`/api/plugins/${id}/restart`,{bot_id:pluginBotId})));
-    document.getElementById('export-code-plugin').onclick=()=>{const a=document.createElement('a');a.href=`/api/plugins/${id}/export`;a.download=id+'.zip';a.click();};
-    document.getElementById('delete-code-plugin').onclick=async()=>{try{await mdui.confirm({headline:'卸载插件',description:'请先导出代码包。插件配置和持久状态会保留。',confirmText:'卸载',cancelText:'取消'});await checked(apiDelete(`/api/plugins/${id}`));currentPlugin=null;document.getElementById('plugin-details').textContent='已卸载';await loadPluginsList();}catch(error){showSnackbar(error.message||'已取消');}};
+    const download=async backup=>{try{const response=await fetch(`/api/plugins/${id}/export${backup?'?backup=1':''}`);if(!response.ok||!response.headers.get('Content-Type')?.includes('application/zip'))throw Error('导出失败');const url=URL.createObjectURL(await response.blob());const a=document.createElement('a');a.href=url;a.download=id+(backup?'-private-backup':'')+'.zip';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(error){showSnackbar(error?.message||'导出失败');}};
+    document.getElementById('export-code-plugin').onclick=()=>download(false);
+    document.getElementById('backup-code-plugin').onclick=()=>download(true);
+    document.getElementById('delete-code-plugin').onclick=async()=>{try{await mdui.confirm({headline:'卸载插件',description:'请先导出代码包。插件配置和持久状态会保留。',confirmText:'卸载',cancelText:'取消'});await checked(apiDelete(`/api/plugins/${id}`));currentPlugin=null;document.getElementById('plugin-details').textContent='已卸载';await loadPluginsList();}catch(error){showSnackbar(error?.message||'已取消');}};
 }
 
 // ==================== 配置页 ====================
@@ -1457,9 +1461,7 @@ function renderSandboxMessage(msg) {
 
 // ==================== 工具函数 ====================
 function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    return String(text ?? '').replace(/[&<>"']/g, char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 }
 
 function showSnackbar(message) {

@@ -2,8 +2,11 @@ package core
 
 import (
 	"context"
+	"errors"
 	"github.com/tencent-connect/botgo/dto"
 	"github.com/tencent-connect/botgo/event"
+	"github.com/tencent-connect/botgo/openapi"
+	"github.com/tencent-connect/botgo/openapi/options"
 	"golang.org/x/oauth2"
 	"shizukubot/config"
 	"shizukubot/events"
@@ -139,4 +142,64 @@ func TestBuiltinReplyDoesNotHoldBotLock(t *testing.T) {
 	}
 	close(release)
 	<-done
+}
+
+type canceledAPI struct {
+	openapi.OpenAPI
+	entered chan struct{}
+}
+
+func (a *canceledAPI) PostGroupMessage(ctx context.Context, _ string, _ dto.APIMessage, _ ...options.Option) (*dto.Message, error) {
+	close(a.entered)
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+func TestReplyPropagatesCancellation(t *testing.T) {
+	b := testBot(t, "cancel")
+	api := &canceledAPI{entered: make(chan struct{})}
+	b.OpenAPI = api
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- b.reply(events.Event{Source: events.Group, GroupID: "g"})(ctx, events.Reply{Kind: "text", Text: "hello"})
+	}()
+	<-api.entered
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("reply ignored cancellation")
+	}
+}
+
+type blockingToken struct{ entered, release chan struct{} }
+
+func (b blockingToken) Token() (*oauth2.Token, error) {
+	close(b.entered)
+	<-b.release
+	return &oauth2.Token{AccessToken: "mock", TokenType: "QQBot"}, nil
+}
+func TestAuthenticationDoesNotHoldBotStateLock(t *testing.T) {
+	b := testBot(t, "auth-lock")
+	entered, release := make(chan struct{}), make(chan struct{})
+	b.TokenSource = blockingToken{entered, release}
+	done := make(chan error, 1)
+	go func() { done <- b.Start() }()
+	<-entered
+	queried := make(chan struct{})
+	go func() { b.ConfigSnapshot(); close(queried) }()
+	select {
+	case <-queried:
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("authentication blocked state query")
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	b.Stop()
 }

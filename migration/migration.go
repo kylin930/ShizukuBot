@@ -114,11 +114,25 @@ func Run(o Options) (Report, error) {
 		item.ID = old.ID
 		item.BotID = old.BotID
 		item.NewID = old.ID
-		if !plugins.ValidID(item.NewID) {
+		if !plugins.ValidID(item.NewID) || strings.HasPrefix(item.NewID, "builtin-") {
 			item.NewID = "legacy-" + item.SHA256[:16]
 		}
 		mf, code, caps, err := convert(old, item.NewID)
 		item.Capabilities = caps
+		if err == nil {
+			for _, raw := range custom {
+				var definition struct {
+					Type string `json:"type"`
+				}
+				if json.Unmarshal(raw, &definition) == nil {
+					for _, capability := range caps {
+						if definition.Type == capability {
+							err = errors.New("global custom node overrides a used capability; manual review required")
+						}
+					}
+				}
+			}
+		}
 		if err != nil {
 			item.Reason = err.Error()
 		} else {
@@ -138,6 +152,18 @@ func Run(o Options) (Report, error) {
 			}
 		}
 		report.Items = append(report.Items, item)
+	}
+	counts := map[string]int{}
+	for _, item := range report.Items {
+		if item.Status == "convertible" {
+			counts[item.NewID]++
+		}
+	}
+	for i, item := range report.Items {
+		if counts[item.NewID] > 1 {
+			report.Items[i].Status = "manual"
+			report.Items[i].Reason = "duplicate legacy IDs; manual reconciliation required"
+		}
 	}
 	if !o.Apply {
 		return report, nil
@@ -193,7 +219,7 @@ func Run(o Options) (Report, error) {
 		}
 		out := outputs[item.File]
 		manifest, _ := json.MarshalIndent(out.manifest, "", "  ")
-		info, _ := json.Marshal(map[string]string{"source_sha256": item.SHA256, "source_bot_id": item.BotID})
+		info, _ := json.Marshal(map[string]string{"source_sha256": item.SHA256, "source_bot_id": item.BotID, "backup_id": filepath.Base(backup)})
 		var buf bytes.Buffer
 		z := zip.NewWriter(&buf)
 		for name, b := range map[string][]byte{"manifest.json": manifest, "dist/index.js": []byte(out.code), "src/index.js": []byte(out.code), "migration.json": info} {
@@ -206,6 +232,12 @@ func Run(o Options) (Report, error) {
 			}
 		}
 		if err = z.Close(); err != nil {
+			return report, err
+		}
+		expected := map[string][]byte{"manifest.json": manifest, "dist/index.js": []byte(out.code), "src/index.js": []byte(out.code), "migration.json": info, "package.json": []byte(`{"type":"module"}`)}
+		report.Items[i].Status = "conversion-pending"
+		report.Items[i].GeneratedHash = treeHash(expected)
+		if err = plugins.AtomicJSON(filepath.Join(backup, "report.json"), report); err != nil {
 			return report, err
 		}
 		if _, err = store.Install(buf.Bytes()); err != nil {
@@ -258,11 +290,18 @@ func Rollback(backup, destination string) error {
 		return errors.New("invalid destination")
 	}
 	for _, item := range report.Items {
-		if item.Status != "converted-disabled" {
+		if item.Status != "converted-disabled" && item.Status != "conversion-pending" {
 			continue
 		}
 		if !plugins.ValidID(item.NewID) {
 			return errors.New("invalid generated id")
+		}
+		if filepath.Base(item.File) != item.File {
+			return errors.New("invalid backup source path")
+		}
+		original, err := os.ReadFile(filepath.Join(backup, "plugins", item.File))
+		if err != nil || digest(original) != item.SHA256 {
+			return errors.New("original backup failed checksum verification")
 		}
 		dir := filepath.Join(report.Destination, item.NewID)
 		if _, err = os.Stat(dir); os.IsNotExist(err) {
@@ -277,7 +316,7 @@ func Rollback(backup, destination string) error {
 		}
 	}
 	for _, item := range report.Items {
-		if item.Status == "converted-disabled" {
+		if item.Status == "converted-disabled" || item.Status == "conversion-pending" {
 			if err = os.RemoveAll(filepath.Join(report.Destination, item.NewID)); err != nil {
 				return err
 			}

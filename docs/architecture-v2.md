@@ -1,38 +1,41 @@
-# ShizukuBot v2 — P0 architecture
+# ShizukuBot v2 架构（P1）
 
-## Inspection and scope
+## 事件与能力边界
 
-Baseline main: e86178d97724d72ec0e4e552f67de3fcedc7f238. Source, not the empty README, defines the workflow: Go 1.26, CGO SQLite, local BotGo replacement, prebuilt MDUI/LiteGraph assets. Root initially has no tests; `go test ./...` fails vet at core/bot.go's interaction format string.
+QQ WebSocket gateway / 验签 Webhook → `transport/qq.Normalize` → `core.Bot.HandlePayload` → `events.Dispatcher`（按 Bot/平台身份去重）→ `events.Bus`。
 
-Confirmed causes before implementation:
-- Every Bot.Start registers method closures into BotGo event.DefaultHandlers. Last registration wins for every WS and HTTP callback. The local session manager has no cancellation; Stop cancels token refresh but leaves connections/reconnect workers alive.
-- ExecutionEngine fingerprints group/channel + author + content, omits BotID, and keeps an immortal cleanup goroutine. Consecutive legitimate messages collide.
-- core directly constructs graph EventContext and holds ExecutionEngine. Sandbox hardcodes bot identity and only replaces some reply callbacks.
-- Startup prints credentials; config GET returns the session signing secret. Cookies lack SameSite and HTTPS policy. WS permits every Origin. Mutations lack CSRF protection. Code scanning accepts arbitrary paths, and plugin IDs become file paths.
+Bot 只负责连接、生命周期和消息能力。Bus 不依赖插件、SDK DTO 或编辑器。原图执行器、数据类型、解释执行和编辑器已删除；`migration/` 只在离线 CLI 中读取历史 JSON，生产没有旧引擎回退。
 
-## Direction
+插件管理器为每个插件/Bot 创建独立实例，启动后向 Bus 注册一个 Bot 过滤订阅；禁用会取消生命周期、移除订阅、等待当前调用并停止实例。同名指令可属于不同插件，彼此不会覆盖。当前按订阅顺序广播，多插件响应同一普通指令是明确允许的行为。主机以纯路由策略保留核心内置命令优先级，避免旧简单回复迁移后重复响应内置命令；调试使用独立实例，不执行该生产消费策略。
 
-Transport (QQ WS or signed webhook) -> normalized events.Event -> Dispatcher (identity dedup) -> Bus -> builtin handler / legacy plugin adapter. Core owns connection and message capabilities, not graph nodes. SDK token retrieval remains lazy; the unsafe background refresh helper is not used. SDK OpenAPI/DTO stay pinned; the application owns a small context-bound gateway instead of using SDK global event callbacks or its uncancellable session manager. No vendored SDK changes or SDK migration in P0.
+Go 扩展由静态注册表提供全新对象，无 `.so`、无平台全局事件回调。Node Worker 是独立子进程，不向子进程继承核心环境、凭证或认证代理变量。只有插件配置和必要的事件字段进入 IPC；`data` 为收到的平台事件数据，不包含核心对象、TokenSource、AppSecret 或会话密钥。
 
-Event fields include bot, platform event and message IDs, canonical type, source, actor/target, original JSON and a typed reply capability. Raw JSON is an opaque compatibility envelope; public events contain no GraphData/NodeData. Different transports normalize with the same function.
+## 生命周期与并发
 
-Bus handlers are synchronous, registration ordered, isolated by optional BotID/type filters. Concurrent publishers may run concurrently; handlers must synchronize shared state. Each handler has a cooperative context deadline. Errors and panics are collected and later handlers still run. No goroutine is abandoned to pretend a timeout can interrupt arbitrary Go code. Future middleware and command/priority routing can wrap handlers without graph dependencies. Unsubscription is idempotent; cancellation is checked before invocation.
+- 核心管理配置采用独立 RW 锁和副本提交；同 Bot 的生命周期编辑独立串行。查询、沙盒、发送和文件工作不持有全局 API 锁。
+- 初始认证不持有 Bot 状态锁；内置指令在 Bot 锁内复制配置，锁外查询命令、探测状态和回复。发送 API 和回复能力传播调用的 context。
+- 插件 Load/Start/注册、事件调用与 Stop/Unload 按实例 gate 串行；等待 gate 可取消。注册集合在 Start 后封闭，禁止重复命令或后期修改处理器。
+- Go 初始化 context 只用于初始化；后台任务用 `Host.Context()`，在 Disable/Close 时取消。Go 扩展必须合作处理取消，不能被核心强行抢占。
+- 每次 JS 调用默认 2 秒；超时、取消、协议错误或退出会终止并等待 Worker。后续匹配事件可以重建失败 Worker，重启退避为 100ms × 连续失败次数、最多 1 秒。启动本身失败需要管理员修复后重试，不后台无限重试。
+- 不同实例可以并发，同实例内串行；单个插件异常不会阻断后续 Bus 订阅。管理器关闭时取消并等待生产和调试实例，禁止新 Worker。
+- 沙盒最多并发四个新实例，每次使用临时状态和捕获型 Reply，不复用生产进程或生产状态。信任确认仍是执行前提。
 
-Dedup uses bot + source + target + actor + message ID for messages; group AT/plain and guild AT/plain aliases represent the same message. Nonmessage keys use bot + exact type + event ID. Missing message IDs fall back to exact event IDs without guessing cross-type equivalence. No reliable identity means no dedup. Entries have TTL, a capacity bound and lazy expiry; no background cleanup process. Dedup is at-most-once within the window, not durable exactly-once delivery or transaction retry.
+Bot 的连接生命周期与插件的启用状态独立：停止/替换 Bot 不会重复订阅或重建插件进程，停止的 Bot 不再产生业务事件。插件可单独禁用以释放空闲 Worker；核心退出统一释放全部实例。
 
-Legacy JSON, converters, storage, node executors and frontend remain. The legacy adapter owns graph translation and capability mapping; sandbox uses capture-only reply capabilities, never a real Bot sender. Interpreted Go, file and HTTP nodes remain trusted administrator code, **not an OS security sandbox**. Cooperative deadlines cannot terminate arbitrary interpreted/native code.
+## 存储与包
 
-Security uses explicit secure-cookie configuration or actual TLS, never forwarded headers; SameSite=Lax and HttpOnly. Mutation protection rejects foreign Origin/Referer/Fetch-Metadata and requires JSON for origin-less API mutations, retaining native JSON clients. Same-origin scripts need no UI redesign. Log streaming and administrative APIs require admin accounts (no full RBAC). Filesystem scan access is rooted below data; secrets are write-only API fields.
+`data/code-plugins/<id>` 为只读用途的已安装代码项目；`data/plugin-data/settings.json` 保存各 Bot 的启用/信任/配置，`state/<id>/<sha256(botID)>.json` 保存各 Bot 状态。配置和状态使用临时文件、同步与替换写入。
 
-## Validation and follow-up
+ZIP 在私有 staging 中完整验证后安装，不覆盖已有 ID，不执行 npm scripts。路径、重复大小写名、Windows 保留名、符号链接、文件个数及解压大小受限；Go 扩展只能静态注册。安装不激活代码。代码导出与含私有数据的备份分开；恢复数据是显式动作，保持禁用/不信任，拒绝覆盖已有数据。
 
-See v2-p0-report.md for actual tests, SDK compatibility findings and limits. Real QQ authorization, gateway limits, resume behavior and hosted HTTPS termination still require deployment testing. P1 should add an isolated worker protocol, explicit plugin capabilities and an SDK independent of graph structures, not expose Yaegi as isolation.
+## IPC v1 和权限
 
+IPC 为每行一个 JSON frame，含版本、ID、类型、payload/error；能力请求的 parent 必须等于正在执行的请求 ID。帧 1MiB、主机请求 512KiB、每次调用最多 128 个能力请求。stdout 保留给协议；console 转 stderr，仅在 log.write 权限下采集，每进程上限 16KiB。显式 log 能力每条最多 4096 字符。
 
-## P1 implementation plan
+权限在 Go 主机校验，不依赖插件自觉遵守。事件、指令、发送、配置、状态读写和日志各有独立授权。发送只能通过当前事件提供的能力，不能指定其他 Bot 的发送对象。Node 仍可自行使用标准库网络/文件能力，权限不是 OS 安全策略。
 
-P1 replaces the legacy execution model with statically registered Go extensions and one Node.js process per plugin/Bot instance. IPC v1 carries bounded JSON lines with request IDs; capabilities, replies, configuration and per-Bot state are mediated by Go. Node 24 LTS is required; TypeScript is compiled before installation. Separate processes are fault boundaries, not a filesystem/network sandbox. Only explicitly trusted packages may run.
+## 兼容与边界
 
-Installation stages and validates a bounded ZIP below a dedicated code-plugin root, then atomically installs a new ID. User configuration/state live outside package code. Migration archives exact legacy files before generating only narrowly proven equivalent code; unsupported graphs remain disabled with a manual report. Rollback never removes user-edited generated code. Legacy runtime removal follows worker and migration validation, with no production fallback.
+P0 的去重、签名、gateway 恢复、认证/CSRF/日志 WS 保留。Node 24 LTS 和 IPC/API major 1 是当前运行约定。TypeScript 在构建时转 JS，不在服务器执行编译器。动态下载依赖、在线市场、新规则编辑器和强隔离均不属于本轮。
 
-Administrative configuration snapshots use a dedicated RW lock, per-Bot lifecycle edits are serialized independently, and queries/sandbox/file scans do not take that lock. Builtin replies use a Bot snapshot and invoke all external callbacks after releasing its mutex.
+旧数据备份/能力检测/保守迁移见 `legacy-migration.md`，P0 源码调查保留在历史 `v2-p0-report.md`，不代表当前运行结构。实际验证与未验证环境见 `v2-p1-report.md`。

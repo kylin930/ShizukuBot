@@ -161,3 +161,22 @@ func defaultIfEmpty(s, fallback string) string {
 	}
 	return s
 }
+
+// MatchesBuiltin reserves existing core commands before plugin routing. It performs no I/O.
+func (b *Bot) MatchesBuiltin(e events.Event) bool {
+	cfg := b.ConfigSnapshot()
+	message := strings.TrimSpace(e.Message)
+	parts := strings.Fields(message)
+	if len(parts) > 0 && parts[0] == "#shizuku" {
+		return true
+	}
+	prefix := cfg.CommandPrefix
+	if prefix == "" {
+		prefix = "/"
+	}
+	if !strings.HasPrefix(message, prefix) {
+		return false
+	}
+	parts = strings.Fields(strings.TrimPrefix(message, prefix))
+	return len(parts) > 0 && (parts[0] == "help" || parts[0] == "status")
+}

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"shizukubot/config"
 	"shizukubot/core"
+	"shizukubot/events"
 	"shizukubot/plugins"
 	"shizukubot/webui"
 	"strings"
@@ -201,12 +202,13 @@ func TestLogWebsocketAuthorizationAndOrigin(t *testing.T) {
 }
 func TestScanConfinement(t *testing.T) {
 	r, c := setupRouter(t)
-	for _, route := range []string{"/api/code/scan", "/api/code/code2graph", "/api/code/graph2code", "/api/plugins/test/graph", "/api/custom-nodes"} {
-		w := request(r, c, "POST", route, `{"path":"/etc/passwd"}`)
-		if w.Code < 400 {
-			t.Fatal("retired execution route still callable", route, w.Code)
+	for _, test := range []struct{ method, path string }{{"POST", "/api/code/scan"}, {"POST", "/api/code/code2graph"}, {"POST", "/api/code/graph2code"}, {"PUT", "/api/plugins/test/graph"}, {"GET", "/api/custom-nodes"}} {
+		w := request(r, c, test.method, test.path, `{"path":"/etc/passwd"}`)
+		if w.Code != 404 {
+			t.Fatal("retired execution route not absent", test, w.Code)
 		}
 	}
+
 	var buf bytes.Buffer
 	z := zip.NewWriter(&buf)
 	w, _ := z.Create("../escape")
@@ -290,5 +292,37 @@ func TestSandboxCapturesAllMedia(t *testing.T) {
 	var result SandboxMessageResponse
 	if json.Unmarshal(w.Body.Bytes(), &result) != nil || len(result.Results) != 6 || len(result.Errors) != 0 {
 		t.Fatal(w.Body.String())
+	}
+}
+
+func TestCoreBuiltinCommandsKeepPriority(t *testing.T) {
+	r, _ := setupRouter(t)
+	bot, err := core.NewBot(config.BotConfig{ID: "builtin-test", AppID: "mock", AppSecret: "mock", Mode: "webhook"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = r.botManager.AddBot(bot); err != nil {
+		t.Fatal(err)
+	}
+	code := `export default {id:'listener',version:'1.0.0',events:{'*':async c=>c.reply('plugin')}};`
+	mf := plugins.Manifest{APIVersion: 1, ID: "listener", Name: "listener", Version: "1.0.0", Runtime: "javascript", Entry: "dist/index.js", Permissions: []string{"events.subscribe", "message.send"}, ConfigSchema: plugins.Schema{Type: "object"}}
+	var buf bytes.Buffer
+	writer := zip.NewWriter(&buf)
+	manifest, _ := json.Marshal(mf)
+	for name, data := range map[string][]byte{"manifest.json": manifest, "dist/index.js": []byte(code)} {
+		w, _ := writer.Create(name)
+		w.Write(data)
+	}
+	writer.Close()
+	if _, err = r.plugins.Store.Install(buf.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	if err = r.plugins.Enable(context.Background(), "listener", bot.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	var replies []string
+	err = r.botManager.Events().Publish(context.Background(), events.Event{BotID: bot.ID, Type: "c2c_message", Message: "/help", Reply: func(_ context.Context, reply events.Reply) error { replies = append(replies, reply.Text); return nil }})
+	if err != nil || len(replies) != 1 || replies[0] == "plugin" {
+		t.Fatal("builtin priority regressed", replies, err)
 	}
 }

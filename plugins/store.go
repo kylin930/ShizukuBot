@@ -42,7 +42,7 @@ func portablePath(name string) bool {
 	}
 	for _, part := range strings.Split(name, "/") {
 		stem := strings.ToUpper(strings.Split(part, ".")[0])
-		if strings.HasSuffix(part, ".") || strings.HasSuffix(part, " ") || stem == "CON" || stem == "PRN" || stem == "AUX" || stem == "NUL" || strings.HasPrefix(stem, "COM") || strings.HasPrefix(stem, "LPT") {
+		if strings.HasSuffix(part, ".") || strings.HasSuffix(part, " ") || stem == "CON" || stem == "PRN" || stem == "AUX" || stem == "NUL" || (len(stem) == 4 && (strings.HasPrefix(stem, "COM") || strings.HasPrefix(stem, "LPT")) && stem[3] >= '1' && stem[3] <= '9') {
 			return false
 		}
 	}

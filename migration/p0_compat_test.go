@@ -167,3 +167,69 @@ func TestRollbackPreservesUserEdits(t *testing.T) {
 		t.Fatal("deleted edited plugin")
 	}
 }
+
+func TestGlobalCustomOverrideRequiresManualReview(t *testing.T) {
+	o, _ := fixture(t, replyGraph)
+	os.WriteFile(filepath.Join(o.CustomNodes, "override.json"), []byte(`{"type":"action/send_message","operations":[]}`), 0600)
+	r, err := Run(o)
+	if err != nil || r.Items[0].Status != "manual" {
+		t.Fatal("overridden capability falsely migrated", r, err)
+	}
+}
+func TestPendingJournalCanRollback(t *testing.T) {
+	o, _ := fixture(t, replyGraph)
+	o.Apply = true
+	r, err := Run(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Items[0].Status = "conversion-pending"
+	if err = plugins.AtomicJSON(filepath.Join(r.Backup, "report.json"), r); err != nil {
+		t.Fatal(err)
+	}
+	if err = Rollback(r.Backup, o.Destination); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUnicodeLiteralReply(t *testing.T) {
+	unicode := "Hello 😀\u2028next"
+	graph := strings.Replace(replyGraph, "pong", unicode, 1)
+	o, _ := fixture(t, graph)
+	m := migrated(t, o)
+	if err := m.Enable(context.Background(), "old", "a", true); err != nil {
+		t.Fatal(err)
+	}
+	r, err := send(m, "/ping", "a", events.C2C, "")
+	if err != nil || len(r) != 1 || r[0] != unicode {
+		t.Fatal(r, err)
+	}
+}
+
+func TestConditionalReplyComparison(t *testing.T) {
+	g := `{"nodes":[{"id":1,"type":"event/on_c2c_message","outputs":[{"name":"触发","type":-1,"links":[1]}]},{"id":2,"type":"condition/text_contains","properties":{"keyword":"hello"},"inputs":[{"name":"触发","type":-1,"link":1}],"outputs":[{"name":"结果","type":"boolean","links":[2]}]},{"id":3,"type":"action/send_message","properties":{"template":"matched"},"inputs":[{"name":"触发","type":-1,"link":2}]}],"links":[[1,1,0,2,0,-1],[2,2,0,3,0,-1]]}`
+	o, _ := fixture(t, g)
+	m := migrated(t, o)
+	if err := m.Enable(context.Background(), "old", "a", true); err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range []string{"hello there", "no match"} {
+		r, err := send(m, message, "a", events.C2C, "")
+		expected := 0
+		if strings.Contains(message, "hello") {
+			expected = 1
+		}
+		if err != nil || len(r) != expected {
+			t.Fatal(message, r, err)
+		}
+	}
+}
+
+func TestEventDataPortIsNotAssumedToBeTrigger(t *testing.T) {
+	g := strings.Replace(replyGraph, `"name":"触发","type":-1,"links":[1]`, `"name":"消息文本","type":"string","links":[1]`, 1)
+	o, _ := fixture(t, g)
+	r, err := Run(o)
+	if err != nil || r.Items[0].Status != "manual" {
+		t.Fatal("data-driven trigger falsely migrated", r, err)
+	}
+}

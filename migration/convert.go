@@ -156,6 +156,9 @@ func convert(old legacy, id string) (plugins.Manifest, string, []string, error) 
 		if count != 1 || len(out.Links) != 1 {
 			return mf, "", caps, errors.New("branching or disconnected output")
 		}
+		if i == 0 && (out.Name != "触发" || fmt.Sprint(out.Type) != "-1") {
+			return mf, "", caps, errors.New("event data outputs are not unconditional trigger ports")
+		}
 		if n.Type == condition.Type && out.Name != "结果" {
 			return mf, "", caps, errors.New("condition output is not its true result")
 		}
@@ -221,7 +224,7 @@ func convert(old legacy, id string) (plugins.Manifest, string, []string, error) 
 	}
 	// Commands historically stripped bot mentions and used whitespace tokenization,
 	// not shell argument parsing. Keep that matcher inside generated ordinary code.
-	helper := `function legacyCommand(ctx,prefix,name){let text=ctx.message;const ids=ctx.botMentionIds??[];if(ids.length){for(const id of ids){text=text.split('<@'+id+'>').join('').split('<@!'+id+'>').join('');}}else{text=text.replace(/<@!?[0-9A-Fa-f]+>/g,'');}text=text.replace(/^[ \u00a0]+|[ \u00a0]+$/g,'');if(!text.startsWith(prefix))return false;const parts=text.slice(prefix.length).trim().split(/\s+/);return name==='' || (parts[0]!=='' && parts[0]===name);}`
+	helper := `function legacyCommand(ctx,prefix,name){let text=ctx.message;const ids=ctx.botMentionIds??[];if(ids.length){for(const id of ids){text=text.split('<@'+id+'>').join('').split('<@!'+id+'>').join('');}}else{text=text.replace(/<@!?[0-9A-Fa-f]+>/g,'');}text=text.replace(/^[ \u00a0]+|[ \u00a0]+$/g,'');if(!text.startsWith(prefix))return false;const parts=text.slice(prefix.length).replace(/^\p{White_Space}+|\p{White_Space}+$/gu,'').split(/\p{White_Space}+/u);return name==='' || (parts[0]!=='' && parts[0]===name);}`
 	entries := []string{}
 	for _, typ := range types {
 		entries = append(entries, jsQuote(typ)+":respond")

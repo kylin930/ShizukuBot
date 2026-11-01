@@ -98,6 +98,10 @@ func NewRouter(botManager *core.BotManager, cfg *config.Config, cfgPath string, 
 	if err != nil {
 		panic("plugin settings initialization failed")
 	}
+	if err := plugins.RegisterBuiltins(manager); err != nil {
+		panic("compiled plugin registry initialization failed")
+	}
+	manager.Skip = func(e events.Event) bool { bot, ok := botManager.GetBot(e.BotID); return ok && bot.MatchesBuiltin(e) }
 	manager.Log = func(bot, id, msg string) { logManager.Error(bot, "plugin "+id+": "+msg) }
 
 	if err := webui.InitUserStore("data/users.json"); err != nil {

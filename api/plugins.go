@@ -63,7 +63,8 @@ func (r *Router) GetPlugin(w http.ResponseWriter, req *http.Request) {
 }
 func (r *Router) CreatePlugin(w http.ResponseWriter, req *http.Request) {
 	var body struct {
-		Package string `json:"package_base64"`
+		Package     string `json:"package_base64"`
+		RestoreData bool   `json:"restore_data"`
 	}
 	if json.NewDecoder(req.Body).Decode(&body) != nil {
 		BadRequestResponse(w, "invalid package request")
@@ -74,7 +75,7 @@ func (r *Router) CreatePlugin(w http.ResponseWriter, req *http.Request) {
 		BadRequestResponse(w, "invalid package encoding")
 		return
 	}
-	p, err := r.plugins.Store.Install(data)
+	p, err := r.plugins.InstallPackage(data, body.RestoreData)
 	if err != nil {
 		BadRequestResponse(w, "package rejected: "+err.Error())
 		return
@@ -166,7 +167,13 @@ func (r *Router) DeletePlugin(w http.ResponseWriter, req *http.Request) {
 }
 func (r *Router) ExportPlugin(w http.ResponseWriter, req *http.Request) {
 	id := mux.Vars(req)["id"]
-	data, err := r.plugins.Store.Export(id)
+	var data []byte
+	var err error
+	if req.URL.Query().Get("backup") == "1" {
+		data, err = r.plugins.ExportBackup(id)
+	} else {
+		data, err = r.plugins.Store.Export(id)
+	}
 	if err != nil {
 		BadRequestResponse(w, "package export failed")
 		return

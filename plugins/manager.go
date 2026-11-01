@@ -43,6 +43,8 @@ type slot struct {
 
 // Manager routes events through independent plugin/Bot instances. No process-global plugin state.
 type Manager struct {
+	// Skip is a pure host policy, set before enabling instances.
+	Skip    func(events.Event) bool
 	Store   *Store
 	Bus     *events.Bus
 	Node    string
@@ -58,11 +60,15 @@ type Manager struct {
 	settingsMu sync.Mutex
 	settings   map[string]map[string]Settings
 	closed     bool
+	life       context.Context
+	cancel     context.CancelFunc
+	debugWG    sync.WaitGroup
 	debugSlots chan struct{}
 }
 
 func NewManager(store *Store, bus *events.Bus, dataRoot string) (*Manager, error) {
-	m := &Manager{Store: store, Bus: bus, Timeout: 2 * time.Second, root: dataRoot, slots: map[string]*slot{}, settings: map[string]map[string]Settings{}, debugSlots: make(chan struct{}, 4), native: map[string]struct {
+	life, cancel := context.WithCancel(context.Background())
+	m := &Manager{life: life, cancel: cancel, Store: store, Bus: bus, Timeout: 2 * time.Second, root: dataRoot, slots: map[string]*slot{}, settings: map[string]map[string]Settings{}, debugSlots: make(chan struct{}, 4), native: map[string]struct {
 		m       Manifest
 		factory Factory
 	}{}}
@@ -77,94 +83,6 @@ func NewManager(store *Store, bus *events.Bus, dataRoot string) (*Manager, error
 		return nil, err
 	}
 	return m, nil
-}
-func (m *Manager) RegisterGo(manifest Manifest, create func() Extension) error {
-	if err := manifest.Validate(); err != nil {
-		return err
-	}
-	if manifest.Runtime != "go" || create == nil {
-		return errors.New("invalid Go registration")
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.native[manifest.ID]; ok {
-		return errors.New("duplicate Go registration")
-	}
-	m.native[manifest.ID] = struct {
-		m       Manifest
-		factory Factory
-	}{manifest, func(Manifest, string, map[string]any, State) (Runtime, error) {
-		return &Native{Extension: create()}, nil
-	}}
-	return nil
-}
-func (m *Manager) manifest(id string) (Manifest, Factory, error) {
-	m.mu.RLock()
-	native, ok := m.native[id]
-	m.mu.RUnlock()
-	if ok {
-		return native.m, native.factory, nil
-	}
-	p, err := m.Store.Get(id)
-	if err != nil {
-		return Manifest{}, nil, err
-	}
-	return p.Manifest, func(mf Manifest, bot string, c map[string]any, s State) (Runtime, error) {
-		return &Worker{Node: m.Node, Entry: filepath.Join(p.Directory, mf.Entry), Manifest: mf, BotID: bot, Config: c}, nil
-	}, nil
-}
-func (m *Manager) Config(id, bot string) Settings {
-	m.settingsMu.Lock()
-	defer m.settingsMu.Unlock()
-	s := m.settings[id][bot]
-	s.Config = copyMap(s.Config)
-	return s
-}
-func copyMap(v map[string]any) map[string]any {
-	data, _ := json.Marshal(v)
-	var out map[string]any
-	_ = json.Unmarshal(data, &out)
-	if out == nil {
-		out = map[string]any{}
-	}
-	return out
-}
-func (m *Manager) Configure(id, bot string, config map[string]any) error {
-	mf, _, err := m.manifest(id)
-	if err != nil {
-		return err
-	}
-	v, err := mf.ConfigSchema.Validate(copyMap(config))
-	if err != nil {
-		return err
-	}
-	return m.saveSettings(id, bot, func(s *Settings) { s.Config = v.(map[string]any) })
-}
-func (m *Manager) saveSettings(id, bot string, update func(*Settings)) error {
-	if bot == "" || len(bot) > 256 {
-		return errors.New("invalid bot id")
-	}
-	m.settingsMu.Lock()
-	defer m.settingsMu.Unlock()
-	all := map[string]map[string]Settings{}
-	b, err := json.Marshal(m.settings)
-	if err != nil {
-		return err
-	}
-	if err = json.Unmarshal(b, &all); err != nil {
-		return err
-	}
-	if all[id] == nil {
-		all[id] = map[string]Settings{}
-	}
-	s := all[id][bot]
-	update(&s)
-	all[id][bot] = s
-	if err = AtomicJSON(filepath.Join(m.root, "settings.json"), all); err != nil {
-		return err
-	}
-	m.settings = all
-	return nil
 }
 func (m *Manager) getSlot(id, bot string) *slot {
 	key := id + "\x00" + bot
@@ -216,7 +134,7 @@ func (m *Manager) Enable(ctx context.Context, id, bot string, trust bool) error 
 	if closed {
 		return errors.New("plugin manager closed")
 	}
-	cctx, cancel := context.WithCancel(context.Background())
+	cctx, cancel := context.WithCancel(m.life)
 	s.life = cctx
 	s.mu.Lock()
 	s.cancel = cancel
@@ -239,6 +157,9 @@ func (m *Manager) Enable(ctx context.Context, id, bot string, trust bool) error 
 	s.mu.Lock()
 	s.status.Enabled = true
 	s.off = m.Bus.Subscribe(events.Filter{BotID: bot}, func(ctx context.Context, e events.Event) error {
+		if m.Skip != nil && m.Skip(e) {
+			return nil
+		}
 		if len(e.PluginIDs) > 0 {
 			found := false
 			for _, id := range e.PluginIDs {
@@ -260,15 +181,25 @@ func (m *Manager) start(ctx context.Context, s *slot, f Factory) error {
 	if s.manifest.Allows("config.read") {
 		cfg = copyMap(s.config)
 	}
-	runtime, err := f(s.manifest, s.status.BotID, cfg, s.state)
+	var runtime Runtime
+	err := safe(func() error { var err error; runtime, err = f(s.manifest, s.status.BotID, cfg, s.state); return err })
+	if err == nil && runtime == nil {
+		err = errors.New("factory returned no runtime")
+	}
 	if err != nil {
 		return err
+	}
+	if native, ok := runtime.(*Native); ok {
+		native.Life = s.life
 	}
 	startCtx, cancel := context.WithTimeout(ctx, m.Timeout)
 	defer cancel()
 	var reg Registration
 	err = safe(func() error { var err error; reg, err = runtime.Start(startCtx); return err })
 	if err == nil {
+		if len(reg.Commands) > 128 || len(reg.Events) > 128 {
+			err = errors.New("too many registrations")
+		}
 		if len(reg.Commands) > 0 && !s.manifest.Allows("commands.register") || len(reg.Events) > 0 && !s.manifest.Allows("events.subscribe") {
 			err = errors.New("registration permission denied")
 		}
@@ -459,7 +390,9 @@ func (m *Manager) Restore(ctx context.Context, bots []string) error {
 func (m *Manager) Close(ctx context.Context) error {
 	m.mu.Lock()
 	m.closed = true
+	m.cancel()
 	m.mu.Unlock()
+	m.debugWG.Wait()
 	var errs []error
 	for _, s := range m.Statuses() {
 		slot := m.getSlot(s.PluginID, s.BotID)
@@ -484,6 +417,7 @@ func (m *Manager) Close(ctx context.Context) error {
 			slot.cancel()
 		}
 		slot.status.Enabled = false
+		slot.status.State = "unloaded"
 		slot.mu.Unlock()
 		if slot.runtime != nil {
 			errs = append(errs, slot.runtime.Stop(ctx))
@@ -525,114 +459,4 @@ func (m *Manager) Commands(ids []string, bot string) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// Debug uses a fresh instance and temporary state; production subscriptions and senders are not involved.
-func (m *Manager) Debug(ctx context.Context, id string, e events.Event, config map[string]any) (err error) {
-	select {
-	case m.debugSlots <- struct{}{}:
-		defer func() { <-m.debugSlots }()
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-
-	mf, f, err := m.manifest(id)
-	if err != nil {
-		return err
-	}
-	settings := m.Config(id, e.BotID)
-	if !settings.Trusted {
-		return errors.New("debug requires explicit trust")
-	}
-	if config == nil {
-		config = settings.Config
-	}
-	cfg, err := mf.ConfigSchema.Validate(copyMap(config))
-	if err != nil {
-		return err
-	}
-	tmp, err := os.MkdirTemp("", "shizuku-debug-")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(tmp)
-	s := &slot{manifest: mf, status: Status{BotID: e.BotID, PluginID: id}, config: cfg.(map[string]any), state: &diskState{file: filepath.Join(tmp, "state.json")}}
-	if err = m.start(ctx, s, f); err != nil {
-		return err
-	}
-	defer func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		err = errors.Join(err, s.runtime.Stop(stopCtx))
-	}()
-	callCtx, cancel := context.WithTimeout(ctx, m.Timeout)
-	defer cancel()
-	call := Call{Event: e, Config: map[string]any{}, State: &permissionState{manifest: mf, inner: s.state}}
-	if mf.Allows("config.read") {
-		call.Config = copyMap(s.config)
-	}
-	if !mf.Allows("message.send") {
-		call.Event.Reply = func(context.Context, events.Reply) error { return errors.New("message.send denied") }
-	}
-	return safe(func() error { return s.runtime.Handle(callCtx, call) })
-}
-
-type permissionState struct {
-	manifest Manifest
-	inner    State
-}
-
-func (p *permissionState) Get(ctx context.Context, k string) (json.RawMessage, error) {
-	if !p.manifest.Allows("state.read") {
-		return nil, errors.New("state.read denied")
-	}
-	return p.inner.Get(ctx, k)
-}
-func (p *permissionState) Set(ctx context.Context, k string, v json.RawMessage) error {
-	if !p.manifest.Allows("state.write") {
-		return errors.New("state.write denied")
-	}
-	return p.inner.Set(ctx, k, v)
-}
-
-// Packages includes installed JS projects and statically registered Go extensions.
-func (m *Manager) Packages() ([]Package, error) {
-	out, err := m.Store.List()
-	if err != nil {
-		return nil, err
-	}
-	m.mu.RLock()
-	for _, n := range m.native {
-		out = append(out, Package{Manifest: n.m})
-	}
-	m.mu.RUnlock()
-	sort.Slice(out, func(i, j int) bool { return out[i].Manifest.ID < out[j].Manifest.ID })
-	return out, nil
-}
-func (m *Manager) Trust(id, bot string, trusted bool) error {
-	if _, _, err := m.manifest(id); err != nil {
-		return err
-	}
-	return m.saveSettings(id, bot, func(s *Settings) { s.Trusted = trusted })
-}
-func (m *Manager) Remove(ctx context.Context, id string) error {
-	for _, s := range m.Statuses() {
-		if s.PluginID == id {
-			if err := m.Disable(ctx, id, s.BotID); err != nil {
-				return err
-			}
-		}
-	}
-	m.settingsMu.Lock()
-	for bot, s := range m.settings[id] {
-		s.Trusted = false
-		s.Enabled = false
-		m.settings[id][bot] = s
-	}
-	err := AtomicJSON(filepath.Join(m.root, "settings.json"), m.settings)
-	m.settingsMu.Unlock()
-	if err != nil {
-		return err
-	}
-	return m.Store.Remove(id)
 }
