@@ -9,8 +9,9 @@ import (
 )
 
 type host struct {
-	commands  map[string]sdk.CommandHandler
-	listeners map[sdk.EventType][]sdk.EventHandler
+	eventOrder []sdk.EventType
+	commands   map[string]sdk.CommandHandler
+	listeners  map[sdk.EventType][]sdk.EventHandler
 }
 
 func newHost() *host {
@@ -29,6 +30,7 @@ func (h *host) Command(name string, f sdk.CommandHandler) error {
 	return nil
 }
 func (h *host) On(typ sdk.EventType, f sdk.EventHandler) error {
+	h.eventOrder = append(h.eventOrder, typ)
 	h.listeners[typ] = append(h.listeners[typ], f)
 	return nil
 }
@@ -214,5 +216,21 @@ func TestReplyHelpersUseOneCapabilityAndPropagateErrors(t *testing.T) {
 	}
 	if err := (sdk.Call{}).ReplyImage(context.Background(), "image"); err == nil {
 		t.Fatal("missing sender was ignored")
+	}
+}
+
+func TestEventPluginDeduplicatesInFirstAppearanceOrder(t *testing.T) {
+	types := []sdk.EventType{sdk.GroupMessage, "custom.ready", sdk.GroupMessage, sdk.C2CMessage, "custom.ready"}
+	_, h := load(t, sdk.EventPlugin(meta(), types, noop))
+	if len(h.eventOrder) != 3 || h.eventOrder[0] != sdk.GroupMessage || h.eventOrder[1] != "custom.ready" || h.eventOrder[2] != sdk.C2CMessage {
+		t.Fatal(h.eventOrder)
+	}
+	if len(h.listeners) != 3 || len(h.listeners[sdk.GroupMessage]) != 1 || len(h.listeners["custom.ready"]) != 1 {
+		t.Fatal(h.listeners)
+	}
+	for _, typ := range []sdk.EventType{"", " ", "bad event", "bad\nname", sdk.EventType(string([]byte{255}))} {
+		if err := sdk.EventPlugin(meta(), []sdk.EventType{typ}, noop).New().Load(context.Background(), newHost()); err == nil {
+			t.Fatal("invalid event accepted", typ)
+		}
 	}
 }

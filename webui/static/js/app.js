@@ -753,6 +753,7 @@ async function saveConfig() {
     try {
         // 更新 configData
         configData.webui = {
+            ...configData.webui,
             port: parseInt(document.getElementById('webui-port').value) || 4545,
             enabled: document.getElementById('webui-enabled').checked,
             password: document.getElementById('webui-password').value
@@ -779,11 +780,11 @@ async function saveConfig() {
         botItems.forEach(item => {
             const index = parseInt(item.dataset.index);
             configData.bots[index] = {
+                ...configData.bots[index],
                 id: item.querySelector('.bot-config-id').value,
                 name: item.querySelector('.bot-config-name').value,
                 app_id: item.querySelector('.bot-config-appid').value,
                 app_secret: item.querySelector('.bot-config-appsecret').value,
-                enabled: false,
                 mode: item.querySelector('.bot-config-mode').value
             };
         });

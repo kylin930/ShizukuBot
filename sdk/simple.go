@@ -40,7 +40,15 @@ func CommandPlugin(meta Meta, name string, handler CommandHandler, options ...Op
 // EventPlugin defines one callback for one or more canonical event types.
 // The event list is copied; each instance registers through the normal Host.
 func EventPlugin(meta Meta, types []EventType, handler EventHandler, options ...Option) Definition {
-	types = append([]EventType(nil), types...)
+	unique := make([]EventType, 0, len(types))
+	seen := map[EventType]bool{}
+	for _, typ := range types {
+		if !seen[typ] {
+			seen[typ] = true
+			unique = append(unique, typ)
+		}
+	}
+	types = unique
 	return simple(meta, []string{"events.subscribe", "message.send"}, func(r Registrar) error {
 		if len(types) == 0 {
 			return errors.New("at least one event type required")
@@ -122,7 +130,7 @@ func (r *registrar) On(typ EventType, handler EventHandler) error {
 		return errors.New("registrar is closed")
 	}
 	var err error
-	if typ == "" || handler == nil {
+	if !ValidEventType(typ) || handler == nil {
 		err = errors.New("invalid event subscription")
 	} else {
 		err = r.host.On(typ, handler)

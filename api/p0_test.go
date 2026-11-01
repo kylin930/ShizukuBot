@@ -312,6 +312,7 @@ func testDefinition(id string, create func() plugins.Extension) plugins.Definiti
 }
 func TestCompiledPluginManagement(t *testing.T) {
 	r, c := setupRouter(t)
+	addManagementBot(t, r, "selected", nil)
 	for _, tc := range []struct{ method, path, body string }{{"POST", "/api/plugins", `{"package_base64":"ignored"}`}, {"DELETE", "/api/plugins/hello", `{}`}} {
 		if w := request(r, c, tc.method, tc.path, tc.body); w.Code != http.StatusGone {
 			t.Fatal(tc, w.Code)

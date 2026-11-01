@@ -4,6 +4,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"shizukubot/plugins"
 	"strings"
 )
 
@@ -39,7 +40,11 @@ func SecurityMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
+		limit := int64(2 << 20)
+		if r.Method == http.MethodPost && r.URL.Path == "/api/plugins/data/restore" {
+			limit = plugins.MaxBackupBytes
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		unsafe := r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS"
 		if unsafe {
 			if !SameOrigin(r) || r.Header.Get("Sec-Fetch-Site") == "cross-site" {

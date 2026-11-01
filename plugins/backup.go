@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 )
 
+// MaxBackupBytes is the shared HTTP and data-restoration quota.
+const MaxBackupBytes = 4 << 20
+
 type botBackup struct {
 	Config map[string]any             `json:"config"`
 	State  map[string]json.RawMessage `json:"state"`
@@ -37,7 +40,7 @@ func (m *Manager) ExportBackup(id string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(raw) > 4<<20 {
+	if len(raw) > MaxBackupBytes {
 		return nil, errors.New("backup exceeds quota; use an offline backup")
 	}
 	return raw, nil
@@ -46,7 +49,7 @@ func (m *Manager) ExportBackup(id string) ([]byte, error) {
 // RestoreBackup restores data for an already compiled plugin into an unused data scope.
 // Existing data is never overwritten, and restored instances remain disabled.
 func (m *Manager) RestoreBackup(raw []byte) error {
-	if len(raw) > 4<<20 {
+	if len(raw) > MaxBackupBytes {
 		return errors.New("backup exceeds quota")
 	}
 	var backup dataBackup

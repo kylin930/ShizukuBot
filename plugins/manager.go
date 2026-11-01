@@ -136,7 +136,9 @@ func (m *Manager) Enable(ctx context.Context, id, bot string) error {
 	s.cancel = cancel
 	s.mu.Unlock()
 	s.manifest = mf
+	s.mu.Lock()
 	s.config = cfg.(map[string]any)
+	s.mu.Unlock()
 	s.state = &diskState{file: filepath.Join(m.root, "state", id, scope(bot)+".json")}
 	if err = m.start(ctx, s, factory); err != nil {
 		cancel()

@@ -88,6 +88,7 @@ type Router struct {
 	plugins    *plugins.Manager
 	configMu   sync.RWMutex
 	botOps     sync.Map
+	pluginOps  sync.Map
 }
 
 func NewRouter(botManager *core.BotManager, cfg *config.Config, cfgPath string, logManager *core.LogManager) *Router {
