@@ -1,6 +1,7 @@
 package webhook
 
 import (
+	"context"
 	"encoding/json"
 	"github.com/gorilla/mux"
 	"github.com/tencent-connect/botgo/dto"
@@ -9,6 +10,8 @@ import (
 	"io"
 	"net/http"
 	"shizukubot/core"
+	"shizukubot/transport/qq"
+	"time"
 )
 
 type Handler struct{ botManager *core.BotManager }
@@ -17,6 +20,10 @@ func NewHandler(bm *core.BotManager) *Handler { return &Handler{bm} }
 
 // ServeHTTP verifies the exact raw body and dispatches only to the URL's bot.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
 	bot, ok := h.botManager.GetBot(mux.Vars(r)["botID"])
 	if !ok {
 		http.Error(w, "bot not found", 404)
@@ -30,6 +37,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	pass, err := signature.Verify(bot.AppSecret, r.Header, body)
 	if err != nil || !pass {
+		bot.RecordTransportError("invalid_webhook_signature")
 		http.Error(w, "invalid signature", 401)
 		return
 	}
@@ -63,8 +71,24 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		io.WriteString(w, sdk.GenHeartbeatACK(seq))
 	case dto.WSDispatchEvent:
-		err := bot.HandlePayload(r.Context(), body)
-		io.WriteString(w, sdk.GenDispatchACK(err == nil))
+		if _, err := qq.Normalize(bot.ID, body); err != nil {
+			http.Error(w, "invalid event", 400)
+			return
+		}
+		if !bot.IsRunning() {
+			bot.RecordTransportError("callback_while_stopped")
+			io.WriteString(w, sdk.GenDispatchACK(false))
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		// d=0 acknowledges reception, not successful business replies. Admission
+		// failures are retryable; handler failures must not cause message replays.
+		accepted, err := bot.HandlePayloadAccepted(ctx, body)
+		if err != nil {
+			bot.RecordTransportError("callback_dispatch_failed")
+		}
+		io.WriteString(w, sdk.GenDispatchACK(accepted))
 	default:
 		http.Error(w, "unsupported opcode", 400)
 	}

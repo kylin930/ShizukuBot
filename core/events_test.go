@@ -163,7 +163,7 @@ func TestReplyPropagatesCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- b.reply(events.Event{Source: events.Group, GroupID: "g"})(ctx, events.Reply{Kind: "text", Text: "hello"})
+		done <- b.reply(events.Event{Type: "group_at_message", Source: events.Group, GroupID: "g", MessageID: "message"})(ctx, events.Reply{Kind: "text", Text: "hello"})
 	}()
 	<-api.entered
 	cancel()

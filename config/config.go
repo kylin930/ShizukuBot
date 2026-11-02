@@ -132,7 +132,7 @@ func createDefaultConfig() *Config {
 				AppSecret: "",
 				Name:      "ShizukuBot",
 				Enabled:   false,
-				Mode:      "websocket",
+				Mode:      "webhook",
 			},
 		},
 		MarketAPI:       "https://api.nekopara.us/market/api",

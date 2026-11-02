@@ -1,3 +1,7 @@
+> P2.3 update: historical examples below are reference only. Do not log raw
+> events, mentions, request/response bodies, authorization or credentials in
+> ShizukuBot. New diagnostics contain only safe metadata.
+
 # botgo-forgensokyo SDK 更改说明
 
 > 基于 [botgo](https://github.com/tencent-connect/botgo) 官方 SDK 进行魔改，
@@ -271,3 +275,19 @@ go test ./dto/... ./event/...
 ```
 
 所有修改均已通过编译和单元测试。
+
+## P2.3 narrow compatibility patches
+
+- Explicit msg_type=0 and srv_send_msg=false JSON serialization.
+- Optional per-instance WithBaseURL injection for httptest only (not app config).
+- Request-local auth; synchronized legacy TraceID getter; request-specific safe
+  PlatformError carries HTTP status, business code and bounded trace ID.
+- Inspect nonzero code/err_code on successful HTTP responses; no automatic POST
+  replay. Invalidate SDK token cache on documented 11244 for next-call recovery.
+- Remove credential/body logging; numeric/string token expiry supported; invalid
+  Token responses cannot become successful cached credentials.
+- Signature Verify/Generate return errors when timestamp is absent.
+- Accept both QQ integer and guild/current RFC3339 timestamps. Preserve raw opaque
+  file_info strings with new FileInfoRaw fields, retaining legacy []byte fields.
+- The Go module replacement and SDK version remain unchanged. Source decisions:
+  ../docs/qq-protocol-audit.md.

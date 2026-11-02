@@ -83,3 +83,12 @@ data/plugin-data/
 data/legacy-backups/
 # Versioned per-Bot rule data
 data/rules/
+
+# Local QQ test credentials, token caches and acceptance evidence
+.env
+.env.*
+!.env.example
+config/*.local.json
+config/*credentials*.json
+*token-cache*.json
+qq-integration-artifacts/

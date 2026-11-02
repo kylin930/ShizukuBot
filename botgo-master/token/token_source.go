@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -44,10 +45,10 @@ type qqBotTokenRsp struct {
 func (r *qqBotTokenRsp) UnmarshalJSON(data []byte) error {
 	// 创建一个临时结构体来解析 JSON 数据
 	var temp struct {
-		Code        int    `json:"code"`
-		Message     string `json:"message"`
-		AccessToken string `json:"access_token"`
-		ExpiresIn   string `json:"expires_in"`
+		Code        int             `json:"code"`
+		Message     string          `json:"message"`
+		AccessToken string          `json:"access_token"`
+		ExpiresIn   json.RawMessage `json:"expires_in"`
 	}
 
 	// 解析 JSON 数据到临时结构体
@@ -56,7 +57,7 @@ func (r *qqBotTokenRsp) UnmarshalJSON(data []byte) error {
 	}
 
 	// 将字符串转换为 int64
-	expiresIn, err := strconv.ParseInt(temp.ExpiresIn, 10, 64)
+	expiresIn, err := strconv.ParseInt(strings.Trim(string(temp.ExpiresIn), `"`), 10, 64)
 	if err != nil {
 		return err
 	}
@@ -120,7 +121,7 @@ func (w *QQBotTokenSource) getNewToken() (*oauth2.Token, error) {
 		return nil, err
 	}
 	payload := bytes.NewReader(data)
-	log.Debugf("retrieve access token URL:%v req:%v", getTokenURL(), string(data))
+
 	req, err := http.NewRequest(http.MethodPost, getTokenURL(), payload)
 	if err != nil {
 		log.Errorf("init http req failed:%v", err)
@@ -144,15 +145,14 @@ func (w *QQBotTokenSource) getNewToken() (*oauth2.Token, error) {
 		log.Errorf("read rsp failed:%v", err)
 		return nil, err
 	}
-	log.Debugf("access token:%v traceID:%v", string(body), rspTraceID)
+
 	retrieveRsp := &qqBotTokenRsp{}
 	if err = json.Unmarshal(body, retrieveRsp); err != nil {
 		log.Errorf("unmarshal rsp failed:%v traceID:%v", err, rspTraceID)
 		return nil, err
 	}
-	if retrieveRsp.Code != 0 {
-		log.Errorf("query acessToken err:%v.%v traceID:%v", retrieveRsp.Code, retrieveRsp.Message, rspTraceID)
-		return nil, fmt.Errorf("%v.%v", retrieveRsp.Code, retrieveRsp.Message)
+	if retrieveRsp.Code != 0 || rsp.StatusCode != http.StatusOK || retrieveRsp.AccessToken == "" || retrieveRsp.ExpiresIn <= 0 {
+		return nil, fmt.Errorf("QQ authentication failed: http=%d code=%d", rsp.StatusCode, retrieveRsp.Code)
 	}
 	expiry := time.Now().Add(time.Duration(retrieveRsp.ExpiresIn) * time.Second)
 	return &oauth2.Token{
@@ -162,6 +162,9 @@ func (w *QQBotTokenSource) getNewToken() (*oauth2.Token, error) {
 		ExpiresIn:   retrieveRsp.ExpiresIn,
 	}, nil
 }
+
+// Invalidate discards cached authentication after a platform token-expired error.
+func (w *QQBotTokenSource) Invalidate() { w.cachedToken.Store(&oauth2.Token{}) }
 
 // GetAppID 获取appid
 func (w *QQBotTokenSource) GetAppID() string {
@@ -177,7 +180,7 @@ func StartRefreshAccessToken(ctx context.Context, tokenSource oauth2.TokenSource
 	if err != nil {
 		return err
 	}
-	log.Debugf("token:%+v ", tk)
+
 	go func() {
 		var consecutiveFailures int
 		for {

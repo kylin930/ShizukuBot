@@ -25,3 +25,23 @@ func TestNormalizeSourcesAndManagement(t *testing.T) {
 		t.Fatal("invalid data accepted")
 	}
 }
+
+func TestQQIdentifierNamespacesAndUnsupportedInteraction(t *testing.T) {
+	for _, kind := range []string{"C2C_MESSAGE_CREATE", "GROUP_AT_MESSAGE_CREATE", "GROUP_MESSAGE_CREATE"} {
+		e, err := Normalize("bot", []byte(`{"id":"event","t":"`+kind+`","d":{"id":"message","group_id":"legacy","group_openid":"group","author":{"id":"guild-user","user_openid":"c2c-user","member_openid":"group-member"}}}`))
+		if err != nil || e.MessageID != "message" || e.EventID != "event" {
+			t.Fatal(e, err)
+		}
+		if kind == "C2C_MESSAGE_CREATE" {
+			if e.UserID != "c2c-user" {
+				t.Fatal(e)
+			}
+		} else if e.GroupID != "group" || e.UserID != "group-member" {
+			t.Fatal(e)
+		}
+	}
+	e, err := Normalize("bot", []byte(`{"id":"event","t":"INTERACTION_CREATE","d":{"id":"interaction","chat_type":1,"group_openid":"group","user_openid":"user"}}`))
+	if err != nil || e.MessageID != "" || e.Source != "" {
+		t.Fatal("interaction gained guessed message capability", e, err)
+	}
+}

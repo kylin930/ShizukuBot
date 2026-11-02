@@ -11,15 +11,16 @@ import (
 )
 
 type BotInfo struct {
-	ID            string   `json:"id"`
-	Name          string   `json:"name"`
-	AppID         string   `json:"app_id"`
-	Enabled       bool     `json:"enabled"`
-	Running       bool     `json:"running"`
-	Mode          string   `json:"mode"`
-	Plugins       []string `json:"plugins"`
-	CommandPrefix string   `json:"command_prefix"`
-	AdminUsers    []string `json:"admin_users"`
+	Diagnostics   core.QQDiagnostics `json:"diagnostics"`
+	ID            string             `json:"id"`
+	Name          string             `json:"name"`
+	AppID         string             `json:"app_id"`
+	Enabled       bool               `json:"enabled"`
+	Running       bool               `json:"running"`
+	Mode          string             `json:"mode"`
+	Plugins       []string           `json:"plugins"`
+	CommandPrefix string             `json:"command_prefix"`
+	AdminUsers    []string           `json:"admin_users"`
 }
 
 func (r *Router) GetBots(w http.ResponseWriter, req *http.Request) {
@@ -70,7 +71,7 @@ func (r *Router) CreateBot(w http.ResponseWriter, req *http.Request) {
 
 	mode := reqBody.Mode
 	if mode == "" {
-		mode = "websocket"
+		mode = "webhook"
 	}
 
 	cfg := config.BotConfig{
@@ -285,5 +286,5 @@ func (r *Router) StopBot(w http.ResponseWriter, req *http.Request) {
 
 func botInfo(b *core.Bot) BotInfo {
 	c := b.ConfigSnapshot()
-	return BotInfo{ID: c.ID, Name: c.Name, AppID: c.AppID, Enabled: c.Enabled, Running: b.IsRunning(), Mode: c.Mode, Plugins: c.Plugins, CommandPrefix: c.CommandPrefix, AdminUsers: c.AdminUsers}
+	return BotInfo{Diagnostics: b.Diagnostics(), ID: c.ID, Name: c.Name, AppID: c.AppID, Enabled: c.Enabled, Running: b.IsRunning(), Mode: c.Mode, Plugins: c.Plugins, CommandPrefix: c.CommandPrefix, AdminUsers: c.AdminUsers}
 }

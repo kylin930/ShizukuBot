@@ -93,10 +93,10 @@ func (g *Gateway) shard(ctx context.Context, url string, id, count uint32, retry
 		var closeErr *websocket.CloseError
 		if errors.As(err, &closeErr) {
 			switch closeErr.Code {
-			case 4010, 4011, 4013, 4014:
+			case 4004, 4010, 4011, 4012, 4013, 4014, 4914, 4915:
 				g.report(errors.New("gateway authentication or sharding rejected"))
 				return
-			case 4007, 4009:
+			case 4006, 4007, 4009:
 				state = resumeState{}
 			}
 		}
@@ -116,6 +116,7 @@ func (g *Gateway) connect(ctx context.Context, url string, id, count uint32, sta
 	}
 	defer conn.Close()
 	conn.SetReadLimit(2 << 20)
+	conn.SetReadDeadline(time.Now().Add(15 * time.Second))
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	// Cancellation closes reads and joins every transport worker before reconnect.
@@ -147,11 +148,6 @@ func (g *Gateway) connect(ctx context.Context, url string, id, count uint32, sta
 		}
 		if err = json.Unmarshal(raw, &p); err != nil {
 			return errors.New("invalid gateway packet")
-		}
-		if p.Seq > 0 {
-			seqMu.Lock()
-			state.Seq = p.Seq
-			seqMu.Unlock()
 		}
 		switch p.Op {
 		case 10:
@@ -199,6 +195,13 @@ func (g *Gateway) connect(ctx context.Context, url string, id, count uint32, sta
 			if err != nil {
 				return err
 			}
+		case 1:
+			seqMu.Lock()
+			seq := state.Seq
+			seqMu.Unlock()
+			if err := write(map[string]any{"op": 1, "d": seq}); err != nil {
+				return err
+			}
 		case 11:
 			// ACK proves the connection is alive. Extend the read deadline on inbound packets below.
 		case 7:
@@ -221,6 +224,11 @@ func (g *Gateway) connect(ctx context.Context, url string, id, count uint32, sta
 			} else if p.Type != "RESUMED" && g.Dispatch != nil {
 				g.report(g.Dispatch(cctx, raw))
 			}
+		}
+		if p.Op == 0 && p.Seq > 0 {
+			seqMu.Lock()
+			state.Seq = p.Seq
+			seqMu.Unlock()
 		}
 		// A bounded idle deadline also catches missing heartbeat ACKs/traffic.
 

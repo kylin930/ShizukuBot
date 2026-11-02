@@ -40,7 +40,7 @@ func TestGatewayReconnectResumeAndShutdown(t *testing.T) {
 			}
 			c.WriteJSON(map[string]any{"op": 0, "t": "READY", "s": 1, "d": map[string]any{"session_id": "session"}})
 		} else {
-			if p.Op != 6 || p.Data["session_id"] != "session" {
+			if p.Op != 6 || p.Data["session_id"] != "session" || p.Data["token"] != "fake" || p.Data["seq"] != float64(2) {
 				t.Error("resume state lost")
 			}
 			resumed <- struct{}{}
@@ -114,5 +114,71 @@ func TestGatewayDiscoveryCancellation(t *testing.T) {
 	g.Run(ctx)
 	if called {
 		t.Fatal("discovery after cancellation")
+	}
+}
+
+func TestGatewayIdentifyHeartbeatAndServerHeartbeat(t *testing.T) {
+	verified := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		conn.WriteJSON(map[string]any{"op": 10, "d": map[string]any{"heartbeat_interval": 100}})
+		var identify struct {
+			Op   int `json:"op"`
+			Data struct {
+				Token string   `json:"token"`
+				Shard []uint32 `json:"shard"`
+			} `json:"d"`
+		}
+		if err = conn.ReadJSON(&identify); err != nil {
+			return
+		}
+		if identify.Op != 2 || identify.Data.Token != "QQBot fake" || len(identify.Data.Shard) != 2 || identify.Data.Shard[0] != 0 || identify.Data.Shard[1] != 1 {
+			t.Error("invalid Identify token/shard")
+		}
+		conn.WriteJSON(map[string]any{"op": 0, "t": "READY", "s": 7, "d": map[string]any{"session_id": "session"}})
+		conn.WriteJSON(map[string]any{"op": 1})
+		for range 2 {
+			var beat struct {
+				Op   int    `json:"op"`
+				Data uint32 `json:"d"`
+			}
+			if err = conn.ReadJSON(&beat); err != nil {
+				return
+			}
+			if beat.Op != 1 || beat.Data != 7 {
+				t.Error("heartbeat lost received sequence")
+			}
+			conn.WriteJSON(map[string]any{"op": 11})
+		}
+		verified <- struct{}{}
+		// Read must be unblocked by cancellation and connection close.
+		for {
+			if _, _, err = conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	defer server.Close()
+	g := Gateway{Tokens: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "fake", TokenType: "QQBot"}), Discover: func(context.Context) (*dto.WebsocketAP, error) {
+		return &dto.WebsocketAP{URL: "ws" + strings.TrimPrefix(server.URL, "http"), Shards: 1, SessionStartLimit: dto.SessionStartLimit{Remaining: 2}}, nil
+	}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { defer close(done); g.Run(ctx) }()
+	select {
+	case <-verified:
+	case <-time.After(3 * time.Second):
+		t.Fatal("heartbeat exchange timed out")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("gateway did not join heartbeat worker")
 	}
 }
