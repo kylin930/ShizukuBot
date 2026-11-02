@@ -661,10 +661,10 @@ function renderBotsConfigList() {
                 <mdui-text-field label="ID" value="${escapeHtml(bot.id)}" class="bot-config-id" readonly></mdui-text-field>
                 <mdui-text-field label="名称" value="${escapeHtml(bot.name)}" class="bot-config-name"></mdui-text-field>
                 <mdui-text-field label="AppID" value="${escapeHtml(bot.app_id)}" class="bot-config-appid"></mdui-text-field>
-                <mdui-text-field label="AppSecret" value="${escapeHtml(bot.app_secret)}" type="password" toggle-password class="bot-config-appsecret"></mdui-text-field>
+                <mdui-text-field label="AppSecret" value="" type="password" toggle-password class="bot-config-appsecret"></mdui-text-field>
                 <div style="display:flex;flex-direction:column;gap:8px">
                     <label style="font-size:14px;color:var(--mdui-color-on-surface-variant)">连接模式</label>
-                    <mdui-select value="${bot.mode || 'websocket'}" class="bot-config-mode">
+                    <mdui-select value="${bot.mode || 'webhook'}" class="bot-config-mode">
                         <mdui-menu-item value="websocket">WebSocket</mdui-menu-item>
                         <mdui-menu-item value="webhook">Webhook</mdui-menu-item>
                     </mdui-select>
@@ -697,7 +697,7 @@ function addBotConfig() {
         app_id: '',
         app_secret: '',
         enabled: false,
-        mode: 'websocket'
+        mode: 'webhook'
     });
     renderBotsConfigList();
 }
@@ -1081,6 +1081,33 @@ async function loadBotsManageList(container) {
     }
 }
 
+function renderQQDiagnostics(bot) {
+    const d = bot.diagnostics || {};
+    const time = value => value ? escapeHtml(new Date(value).toLocaleString()) : '尚未验证';
+    const categories = {
+        authentication: '认证失败', platform_limit: '平台限频',
+        missing_reply_id: '缺少消息关联 ID', reply_limit: '本条消息回复次数已达上限',
+        passive_reply_expired: '被动回复已过期', passive_reply_time_or_count_limit: '被动回复时间或次数超限',
+        not_group_member: '机器人不在目标群', active_send_not_permitted: '平台未允许主动发送',
+        target_or_feature_permission: '缺少目标或消息类型权限',
+        permission_or_ip_policy: '权限或 IP 策略拒绝（需平台确认）',
+        timeout_unknown_delivery: '发送超时，是否送达未知', canceled: '请求已取消',
+        unknown_platform_error: '未知平台错误', network_or_protocol: '网络或协议异常'
+    };
+    return `<details class="qq-diagnostics" style="margin-top:16px">
+        <summary>QQ 联调诊断</summary>
+        <div style="line-height:1.8;font-size:13px;margin-top:8px">
+            <div>接入模式：${escapeHtml(bot.mode || 'webhook')}；进程状态：${bot.running ? '运行中' : '已停止'}（不代表官方回调已验证）</div>
+            <div>最近接收事件：${time(d.last_event_at)}；类型：${escapeHtml(d.last_event_type || '尚未验证')}；消息 ID 字段：${d.last_event_at ? (d.has_message_id ? '已收到' : '本事件未提供') : '尚未验证'}</div>
+            <div>最近被动回复成功：${time(d.last_reply_at)}（仅表示 OpenAPI 接受，QQ 客户端送达需人工验收）</div>
+            <div>最近发送失败：${escapeHtml(categories[d.last_send_failure] || d.last_send_failure || '尚无记录')}；HTTP：${escapeHtml(String(d.http_status || '尚未验证'))}；平台码：${escapeHtml(String(d.platform_code || '尚未验证'))}</div>
+            <div>最近连接/回调异常：${escapeHtml(d.last_transport_error || '尚无记录')}；${time(d.last_transport_error_at)}</div>
+            <div>检查清单：HTTPS 回调 /webhook/${escapeHtml(bot.id)} → 平台事件权限与测试成员 → 签名验证 → /ping → QQ 客户端实际收到 pong。</div>
+            <div>Webhook 优先；WebSocket 仅保留已有接入兼容，不保证新机器人可用。IP 白名单与目标权限不支持自动检测。沙盒成功不代表 QQ 送达。</div>
+        </div>
+    </details>`;
+}
+
 function renderBotCard(bot) {
     const statusColor = bot.running ? '#4caf50' : '#9e9e9e';
     const statusText = bot.running ? '运行中' : '已停止';
@@ -1118,6 +1145,7 @@ function renderBotCard(bot) {
                     <mdui-button-icon icon="delete" data-action="delete" data-id="${bot.id}" style="color:var(--mdui-color-error)"></mdui-button-icon>
                 </div>
             </div>
+            ${renderQQDiagnostics(bot)}
         </mdui-card>
     `;
 }
@@ -1125,7 +1153,7 @@ function renderBotCard(bot) {
 // 添加/编辑机器人对话框
 function showBotDialog(botId, container) {
     const isEdit = !!botId;
-    let bot = { id: '', name: '', app_id: '', app_secret: '', mode: 'websocket', enabled: true };
+    let bot = { id: '', name: '', app_id: '', app_secret: '', mode: 'webhook', enabled: true };
 
     if (isEdit) {
         const data = apiGet('/api/bots/' + botId);
@@ -1145,8 +1173,8 @@ function showBotDialog(botId, container) {
                     <mdui-text-field label="机器人ID" value="${escapeHtml(b.id)}" ${isEdit ? 'disabled' : ''} id="form-id"></mdui-text-field>
                     <mdui-text-field label="名称" value="${escapeHtml(b.name)}" id="form-name"></mdui-text-field>
                     <mdui-text-field label="AppID" value="${escapeHtml(b.app_id)}" id="form-appid"></mdui-text-field>
-                    <mdui-text-field label="AppSecret" value="${escapeHtml(b.app_secret || '')}" id="form-secret" type="password" toggle-password></mdui-text-field>
-                    <mdui-select label="连接模式" value="${b.mode || 'websocket'}" id="form-mode">
+                    <mdui-text-field label="AppSecret" value="" id="form-secret" type="password" toggle-password></mdui-text-field>
+                    <mdui-select label="连接模式" value="${b.mode || 'webhook'}" id="form-mode">
                         <mdui-menu-item value="websocket">WebSocket</mdui-menu-item>
                         <mdui-menu-item value="webhook">Webhook</mdui-menu-item>
                     </mdui-select>
@@ -1167,7 +1195,7 @@ function showBotDialog(botId, container) {
                             mode: dialog.querySelector('#form-mode').value,
                             enabled: dialog.querySelector('#form-enabled').checked
                         };
-                        if (!payload.id || !payload.app_id || !payload.app_secret) {
+                        if (!payload.id || !payload.app_id || (!isEdit && !payload.app_secret)) {
                             showSnackbar('ID、AppID、AppSecret不能为空');
                             return false;
                         }

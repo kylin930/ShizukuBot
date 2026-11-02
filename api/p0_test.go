@@ -338,3 +338,40 @@ func TestCompiledPluginManagement(t *testing.T) {
 		t.Fatal(w.Body.String())
 	}
 }
+
+func TestQQDiagnosticsRedactAndSeparateSandbox(t *testing.T) {
+	r, cookie := setupRouter(t)
+	b, err := core.NewBot(config.BotConfig{ID: "qq-test", AppID: "test-app", AppSecret: "private-secret", Mode: "webhook"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = r.botManager.AddBot(b); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("GET", "/api/bots/qq-test", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	r.WithCORS().ServeHTTP(w, req)
+	if !strings.Contains(w.Body.String(), `"diagnostics"`) || strings.Contains(w.Body.String(), "private-secret") || strings.Contains(w.Body.String(), "last_reply_at") {
+		t.Fatal(w.Body.String())
+	}
+	req = httptest.NewRequest("POST", "/api/bots/qq-test/message/c2c", strings.NewReader(`{"user_id":"user","content":"hello"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	w = httptest.NewRecorder()
+	r.WithCORS().ServeHTTP(w, req)
+	if !strings.Contains(w.Body.String(), `"code":502`) || !strings.Contains(w.Body.String(), "running Bot") {
+		t.Fatal(w.Body.String())
+	}
+	req = httptest.NewRequest("POST", "/api/bots/qq-test/sandbox/send", strings.NewReader(`{"type":"c2c","content":"/ping"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	w = httptest.NewRecorder()
+	r.WithCORS().ServeHTTP(w, req)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"results"`) {
+		t.Fatal(w.Body.String())
+	}
+	if b.Diagnostics().LastReplyAt != nil {
+		t.Fatal("unverified bot had reply success")
+	}
+}
