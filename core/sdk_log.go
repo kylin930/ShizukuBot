@@ -5,9 +5,8 @@ import (
 	"log"
 )
 
-// The external SDK logs credential request bodies and access tokens at Debug.
-// Its logger hook is configured once before any bots start. Business errors are
-// reported separately with BotID; SDK diagnostics must never include raw arguments.
+// Preserve the logger hook as defense in depth across SDK revisions. Per-Bot
+// diagnostics are reported separately; arbitrary SDK arguments are not forwarded.
 func init() { sdklog.DefaultLogger = safeSDKLogger{} }
 
 type safeSDKLogger struct{}

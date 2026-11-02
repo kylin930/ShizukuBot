@@ -1,5 +1,8 @@
 # P1 架构纠偏：回归纯 Go
 
+> 历史实现说明：本文件保留当时的 SDK 路径与验证事实。当前编译依赖已迁移到独立 botgo-plus，根目录 botgo-master 已移除；见 [P2.3.1 迁移报告](v2-p23-botgo-plus-migration-report.md)。
+
+
 ## 审查基线与最小方案
 
 开始时分支 `feat/v2-p1-plugins`，HEAD 为 `7a02620`，工作区干净。在其上创建 `feat/v2-p1-go-correction`，没有重置原分支、覆盖 main、推送或发布。原 P1 的四个提交及用户数据保留。

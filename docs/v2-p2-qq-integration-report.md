@@ -1,5 +1,8 @@
 # P2.3 QQ 官方协议修复与联调交付报告
 
+> 历史实现说明：本文件保留当时的 SDK 路径与验证事实。当前编译依赖已迁移到独立 botgo-plus，根目录 botgo-master 已移除；见 [P2.3.1 迁移报告](v2-p23-botgo-plus-migration-report.md)。
+
+
 日期：2026-11-02。工作分支：`feat/v2-p2-qq-integration`。
 
 **阶段 A 的本地自动验证通过；阶段 B 的工具、诊断和验收流程已交付，真实 QQ 联调未执行。**

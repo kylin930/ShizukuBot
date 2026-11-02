@@ -16,6 +16,10 @@ Windows 使用 `go build -o shizukubot.exe .`。从仓库根目录运行，保�
 
 ## QQ 官方接入与联调
 
+QQ SDK 统一维护于 [botgo-plus](https://github.com/kylin930/botgo-plus)，通过 Go Modules
+固定为 `v0.0.0-20261102144408-979b74884c88`，无需复制 SDK 源码或设置本地 replace。
+[SDK 迁移报告](docs/v2-p23-botgo-plus-migration-report.md) 记录版本、干净构建和回滚方式。
+
 新 Bot 默认使用签名 Webhook：`/webhook/{botID}`；显式 WebSocket 配置继续兼容。
 插件 SDK、内置命令和规则共用事件级被动回复上下文，携带原始 `msg_id`，并发安全
 分配 `msg_seq`（当前官网：C2C 最多 4 次、群聊 5 次；失败/超时也计入尝试）。
@@ -101,6 +105,7 @@ go test ./core ./webhook ./transport/qq -run 'TestQQ|TestWebhook|TestSigned|Test
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o shizukubot.exe .
 ```
 
+- [P2.3.1 SDK 统一维护与依赖迁移](docs/v2-p23-botgo-plus-migration-report.md)
 - [P2.3 QQ 联调交付报告](docs/v2-p2-qq-integration-report.md)
 - [架构](docs/architecture-v2.md)
 - [插件开发](docs/plugin-development.md) / [Go SDK](docs/plugin-sdk.md)
