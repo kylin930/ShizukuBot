@@ -33,7 +33,7 @@ func (r *Router) SendGroupMessage(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if err := bot.SendGroupMessage(reqBody.GroupID, reqBody.Content); err != nil {
-		InternalErrorResponse(w, "operation failed")
+		ErrorResponse(w, 501, err.Error())
 		return
 	}
 
@@ -66,7 +66,7 @@ func (r *Router) SendC2CMessage(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if err := bot.SendC2CMessage(reqBody.UserID, reqBody.Content); err != nil {
-		InternalErrorResponse(w, "operation failed")
+		ErrorResponse(w, 501, err.Error())
 		return
 	}
 
