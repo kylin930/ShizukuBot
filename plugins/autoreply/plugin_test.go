@@ -3,7 +3,7 @@ package autoreply
 import (
 	"context"
 	"shizukubot/events"
-	sdk "shizukubot/plugins"
+	"shizukubot/sdk"
 	"testing"
 )
 

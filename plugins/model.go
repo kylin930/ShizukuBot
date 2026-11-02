@@ -1,129 +1,59 @@
-// Package plugins defines versioned code plugins independently of any editor or QQ SDK.
+// Package plugins implements the trusted Go plugin runtime and static registry.
+// Plugin implementations should import shizukubot/sdk.
 package plugins
 
 import (
-	"context"
-	"encoding/json"
-	"errors"
-	"regexp"
 	"shizukubot/events"
+	"shizukubot/sdk"
 )
 
-const APIVersion = 1
+// APIVersion is retained for source compatibility.
+//
+// Deprecated: use sdk.APIVersion.
+const APIVersion = sdk.APIVersion
 
-var idPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
-var versionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$`)
+// Manifest is retained for source compatibility.
+//
+// Deprecated: use sdk.Manifest.
+type Manifest = sdk.Manifest
 
-func ValidID(id string) bool { return idPattern.MatchString(id) }
+// Definition is retained for source compatibility.
+//
+// Deprecated: use sdk.Definition.
+type Definition = sdk.Definition
 
-// Manifest's api_version is a major compatibility contract, separate from plugin semver.
-type Manifest struct {
-	APIVersion   int      `json:"api_version"`
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	Version      string   `json:"version"`
-	Description  string   `json:"description,omitempty"`
-	Author       string   `json:"author,omitempty"`
-	Runtime      string   `json:"runtime"`
-	Permissions  []string `json:"permissions"`
-	ConfigSchema Schema   `json:"config_schema"`
-}
+// Call is retained for source compatibility.
+//
+// Deprecated: use sdk.Call.
+type Call = sdk.Call
 
-func (m Manifest) Validate() error {
-	if m.APIVersion != APIVersion || !ValidID(m.ID) || m.Name == "" || !versionPattern.MatchString(m.Version) {
-		return errors.New("invalid manifest identity or API version")
-	}
-	if m.Runtime != "go" {
-		return errors.New("only compiled Go plugins are supported")
-	}
-	if m.ConfigSchema.Type != "" && m.ConfigSchema.Type != "object" {
-		return errors.New("config schema root must be object")
-	}
-	if err := m.ConfigSchema.Check(0); err != nil {
-		return err
-	}
-	for _, p := range m.Permissions {
-		switch p {
-		case "events.subscribe", "commands.register", "message.send", "config.read", "state.read", "state.write", "log.write":
-		default:
-			return errors.New("unknown permission: " + p)
-		}
-	}
-	if _, err := json.Marshal(m); err != nil {
-		return errors.New("manifest must contain JSON-compatible values")
-	}
-	return nil
-}
-func (m Manifest) Allows(p string) bool {
-	for _, v := range m.Permissions {
-		if v == p {
-			return true
-		}
-	}
-	return false
-}
+// State is retained for source compatibility.
+//
+// Deprecated: use sdk.State.
+type State = sdk.State
 
-// Call is the capability-limited context visible to trusted extensions.
-type Call struct {
-	Event  events.Event
-	Args   []string
-	Config map[string]any
-	State  State
-	Log    func(string)
-}
+// Host is retained for source compatibility.
+//
+// Deprecated: use sdk.Host.
+type Host = sdk.Host
 
-// State is isolated per plugin and bot. Values must be JSON serializable.
-type State interface {
-	Get(context.Context, string) (json.RawMessage, error)
-	Set(context.Context, string, json.RawMessage) error
-}
+// Extension is retained for source compatibility.
+//
+// Deprecated: use sdk.Extension.
+type Extension = sdk.Extension
 
-// Host lets Go extensions register callbacks during Load or Start.
-type Host interface {
-	// Context remains live until Disable/Unload; use it for background resources.
-	Context() context.Context
-	BotID() string
-	Config() map[string]any
-	State() State
-	Log(string)
-	Command(string, func(context.Context, Call) error) error
-	On(events.Type, func(context.Context, Call) error) error
-}
+// Base is retained for source compatibility.
+//
+// Deprecated: use sdk.Base.
+type Base = sdk.Base
 
-// Extension is a statically registered, trusted Go plugin. Methods honor context.
-type Extension interface {
-	Load(context.Context, Host) error
-	Start(context.Context) error
-	HandleEvent(context.Context, Call) error
-	Stop(context.Context) error
-	Unload(context.Context) error
-}
+// ValidID is retained for source compatibility.
+//
+// Deprecated: use sdk.ValidID.
+func ValidID(id string) bool { return sdk.ValidID(id) }
 
-// Registration is immutable after startup; names may coexist across plugins.
+// Registration is the immutable set of callbacks accepted by the native adapter.
 type Registration struct {
 	Commands []string      `json:"commands"`
 	Events   []events.Type `json:"events"`
-}
-
-// Base supplies no-op lifecycle hooks for plugins that only register callbacks.
-// Embed Base and override the hooks your plugin needs.
-type Base struct{}
-
-func (Base) Load(context.Context, Host) error        { return nil }
-func (Base) Start(context.Context) error             { return nil }
-func (Base) HandleEvent(context.Context, Call) error { return nil }
-func (Base) Stop(context.Context) error              { return nil }
-func (Base) Unload(context.Context) error            { return nil }
-
-// Reply sends through the host-provided capability (capture-only in the sandbox).
-func (c Call) Reply(ctx context.Context, text string) error {
-	return c.Send(ctx, events.Reply{Kind: "text", Text: text})
-}
-
-// Send supports text and rich-media replies without exposing a QQ client.
-func (c Call) Send(ctx context.Context, reply events.Reply) error {
-	if c.Event.Reply == nil {
-		return errors.New("reply capability unavailable")
-	}
-	return c.Event.Reply(ctx, reply)
 }

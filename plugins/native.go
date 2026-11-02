@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"shizukubot/events"
 	"sync"
-	"unicode"
 )
 
 // Native adapts a fresh compiled Go extension instance; never reuse it across bots.
@@ -120,65 +119,6 @@ func safe(f func() error) (err error) {
 		}
 	}()
 	return f()
-}
-
-// ParseCommand uses a literal slash prefix and shell-like quoted arguments, without expansion.
-func ParseCommand(message string) (string, []string, bool) {
-	fields := []string{}
-	word := ""
-	var quote rune
-	escaped, started := false, false
-	for _, r := range message {
-		if escaped {
-			word += string(r)
-			escaped = false
-			started = true
-			continue
-		}
-		if r == '\\' {
-			escaped = true
-			started = true
-			continue
-		}
-		if quote != 0 {
-			if r == quote {
-				quote = 0
-			} else {
-				word += string(r)
-			}
-			started = true
-			continue
-		}
-		if r == '\'' || r == '"' {
-			quote = r
-			started = true
-			continue
-		}
-		if unicode.IsSpace(r) {
-			if started {
-				fields = append(fields, word)
-				word = ""
-				started = false
-			}
-			continue
-		}
-		word += string(r)
-		started = true
-	}
-	if quote != 0 || escaped {
-		return "", nil, false
-	}
-	if started {
-		fields = append(fields, word)
-	}
-	if len(fields) == 0 || len(fields[0]) < 2 || fields[0][0] != '/' {
-		return "", nil, false
-	}
-	name := fields[0][1:]
-	if !ValidID(name) {
-		return "", nil, false
-	}
-	return name, fields[1:], true
 }
 
 func (n *Native) Context() context.Context {

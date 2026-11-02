@@ -1,62 +1,119 @@
 # Go 插件开发
 
-后端与插件均为 Go。无需脚本运行时、转译器或动态加载器。
+## 五分钟创建第一个插件
 
-## 最小插件
-
-在 `plugins/hello/plugin.go` 可以看到完整示例，其核心为：
+仓库的 `plugins/hello/plugin.go` 已提供 Ping 示例。普通插件只需导出 Definition：
 
 ```go
 package hello
 
 import (
     "context"
-    sdk "shizukubot/plugins"
+    "shizukubot/sdk"
 )
 
-type Plugin struct { sdk.Base }
-
 func Definition() sdk.Definition {
-    return sdk.Definition{
-        Manifest: sdk.Manifest{
-            APIVersion: sdk.APIVersion, ID: "hello", Name: "Ping / Pong",
-            Version: "1.0.0", Runtime: "go",
-            Permissions: []string{"commands.register", "message.send"},
-            ConfigSchema: sdk.Schema{Type: "object"},
+    return sdk.CommandPlugin(
+        sdk.Meta{ID: "hello", Name: "Ping / Pong", Version: "1.0.0"},
+        "ping",
+        func(ctx context.Context, c sdk.Call) error {
+            return c.Reply(ctx, "pong")
         },
-        New: func() sdk.Extension { return &Plugin{} },
-    }
-}
-func (*Plugin) Load(_ context.Context, host sdk.Host) error {
-    return host.Command("ping", func(ctx context.Context, call sdk.Call) error {
-        return call.Reply(ctx, "pong")
-    })
+    )
 }
 ```
 
-新增包保持普通 Go 命名，导出零参数的 Definition。不要在 package init 中连接 QQ、启动后台任务或修改全局状态；初始化在实例 Load/Start 中完成，配置与状态通过 Host/Call 获取。
+不必手写结构体、工厂、Load 或空生命周期。API 版本、Go runtime、空对象配置和指令/回复权限由构造器填写。Version 必须显式提供，不推断默认版本。新增其他插件时改用唯一 ID 和 Go 包名；不要在 package init 中连接 QQ 或启动任务。
 
 ```sh
 go generate ./pluginregistry
-go test ./plugins/... ./pluginregistry
+go test ./sdk ./plugins/... ./pluginregistry
 go build -o shizukubot .
 ```
 
-Generator 使用 Go 标准库解析 `plugins/**` 中非测试源文件的 Definition 并生成确定性 import/注册表，跳过 testdata 和隐藏目录，不执行源码。只对审核过的本地插件运行；保持跨平台构建兼容。生成文件加入版本管理。包签名不正确或导出重复 ID 会在编译/Registry 测试中报错。
+部署新二进制并重启主程序，在 MDUI 2 的插件页面选择 Bot 并启用；沙盒选择 hello，输入 `/ping` 即可捕获 pong，不需要真实 QQ。启停和配置无需编译；源码变更后须生成注册表、测试、重新构建并部署，仅点“重启插件”不会加载修改后的源码。
 
-重新构建后部署新二进制并重启主程序，保留 `webui/`、配置和 `data/plugin-data`。已编译插件可随时通过 WebUI 启停、配置、查看状态/错误、备份与沙盒测试。保存配置会重启已启用实例，配置变化不需要重新编译；源码变化需要完整构建部署，插件“重启”只重新创建现有二进制中的对象。
+独立测试可以直接调用处理函数并注入 `sdk.Call{Event: sdk.Event{Reply: ...}}`，参考 `plugins/hello/plugin_test.go`；也可用 `Definition().New()` 和 Mock Host 测试注册。SDK 本身只依赖 Go 标准库和公共事件类型，不依赖管理器或 QQ SDK。
 
-## 示例与测试
+## 监听消息事件
 
-- `plugins/hello`：指令和文本回复，单元测试直接调用 Ping，注入捕获 Reply。
-- `plugins/autoreply`：监听群/C2C，按 Bot 配置 keyword/reply；空关键词不回复。
-- `plugins/example`：`/count`，配置 prefix 和按 Bot 持久计数；损坏状态返回错误。
-- `plugins/framework`：保留 `/framework` 核心版本信息示例。
+```go
+func Definition() sdk.Definition {
+    return sdk.EventPlugin(
+        sdk.Meta{ID: "welcome", Name: "Welcome", Version: "1.0.0"},
+        []sdk.EventType{sdk.GroupMessage, sdk.GroupAtMessage, sdk.C2CMessage},
+        func(ctx context.Context, c sdk.Call) error {
+            if c.Event.Message == "你好" {
+                return c.Reply(ctx, "你好！")
+            }
+            return nil
+        },
+    )
+}
+```
 
-每个包可以独立 `go test ./plugins/hello`。Host 接口可以 Mock，State 接口可以用内存实现。`pluginregistry/registry_test.go` 使用 EventBus 验证所有编译示例及多 Bot 隔离，不启动 QQ。`plugins/manager_test.go` 覆盖生命周期、权限、配置、状态、故障隔离、取消和备份。
+GroupMessage 与 GroupAtMessage 对应不同规范推送类型，按需要都订阅；规范化机制没有更改。EventPlugin 只自动声明事件订阅和回复权限。使用 `c.Event.BotID/UserID/GroupID/Message` 取得身份和内容，指令参数为 `c.Args`，没有另一份重复事件状态。
 
-后台资源监听 Host.Context，Stop 等待 goroutine 退出，Unload 释放最终资源。新构造函数必须返回全新实例，不共享可变全局对象。不要持有事件回复能力跨回调使用。权限帮助明确能力调用，不提供同进程安全隔离；不要编译不可信社区代码。
+`c.ReplyMarkdown(ctx,text)`、`c.ReplyImage(ctx,url)` 和 `c.Send(ctx,sdk.Reply{...})` 共用原回复能力，错误必须返回。群/C2C 支持核心已有媒体，频道/私信当前只支持文本，其他类型返回 unsupported。不要保存 Reply 跨事件使用，须传播调用 context。
 
-配置 schema、状态配额和 HTTP 行为见 [SDK](plugin-sdk.md)。新沙盒每次创建临时状态，生产计数不会变化。私有 JSON 备份包含配置/状态，恢复必须是同 ID、兼容版本的已编译插件且没有旧数据；版本间复杂状态迁移仍需插件作者处理。
+## 使用配置
 
-当前明确接受源码变更后重新编译。不提供 `.so`、在线 Go 编译、解释器、源码热加载或进程外协议。未来外部插件若有真实需求，可另行评估纯 Go 进程协议，不属于当前 P1。
+为构造器增加一个明确选项：
+
+```go
+sdk.WithConfig(sdk.Schema{
+    Type: "object",
+    Properties: map[string]sdk.Schema{
+        "keyword": {Type: "string", Default: []byte(`"你好"`)},
+        "reply":   {Type: "string", Default: []byte(`"你好！"`)},
+    },
+})
+```
+
+WithConfig 同时授予 config.read。事件回调读取 `c.Config["keyword"]`、`c.Config["reply"]`，完整可运行例子见 `plugins/autoreply`，仍使用 EventPlugin。配置和状态按插件/Bot 隔离，未知字段拒绝。WebUI 保存配置会重启已启用实例以应用新快照，无需重新编译。
+
+Schema 支持 object、string、boolean、number、integer、array、properties、required、default、enum、minimum、maximum、items；是有限方言，不是完整 JSON Schema。不要放入核心凭证。
+
+## 多个指令与持久化状态
+
+有多个指令/监听器时，用 Define 在每个实例 Load 中注册，保留错误返回：
+
+```go
+return sdk.Define(sdk.Meta{ID: "tools", Name: "Tools", Version: "1.0.0"},
+    func(r sdk.Registrar) error {
+        if err := r.Command("ping", Ping); err != nil {
+            return err
+        }
+        return r.On(sdk.C2CMessage, Observe)
+    },
+)
+```
+
+Define 默认授予指令注册、事件订阅和回复；不授予配置、状态或日志。Registrar 只在这次回调内有效，回调结束后封闭；重复/无效注册会令 Load 失败，即使误忽略了某次注册的错误也不会变成成功。初始化失败仍进入 Manager 的清理和错误记录。
+
+需要持久化状态时显式增加 `sdk.WithPermissions("state.read", "state.write")`，使用 `c.State.Get/Set(ctx,key,json.RawMessage)`。缺失 key 返回 nil，单值最多 64KiB、每插件/Bot 状态文件 1MiB，key 最长 128 字符。状态在禁用、重启后保留；沙盒每次使用临时状态，不改生产数据。
+
+构造器每次生成新的 Extension。固定处理函数应不含共享可变状态；若要实例内的短期变量，在 Define 的注册回调内部创建闭包。SDK 不会复制调用者闭包捕获的全局变量或外部指针。需要资源和更复杂状态时使用 Advanced API。
+
+## 高级生命周期
+
+`plugins/example` 的计数器保留显式 Manifest、工厂和 `sdk.Base`，演示生命周期为何有用：
+
+- Load 保存当前 Host，注册绑定当前实例的 Count 方法。
+- Start 读取配置与持久计数，损坏状态返回错误，按 Bot 缓存到当前对象。
+- Count 先持久化再更新内存和回复；写入失败不推进计数。
+- Stop 停止使用，Unload 释放 Host 引用；新实例从磁盘恢复。
+
+复杂插件可覆写 Load、Start、HandleEvent、Stop、Unload。后台 goroutine 监听 `Host.Context()`，Stop 等待任务结束并释放资源；初始化 context 只用于初始化，不应作为长期任务的生命周期。清理可能发生在部分初始化失败后，须允许幂等/部分初始化。
+
+实例内事件和生命周期串行，不同实例可并行。error/panic 记录到状态并继续其他处理器，默认超时是合作取消，不强杀 Go goroutine。原生可信插件同进程运行，SDK 权限及调试沙盒不是文件/网络安全隔离；自行创建的 goroutine 要自行同步和处理 panic。
+
+## SDK 参考与部署边界
+
+完整类型、构造器默认值、校验时机和 HTTP 接口见 [Go SDK](plugin-sdk.md)。`sdk` 定义公共开发契约；`plugins.Native` 是当前原生适配器；`plugins.Manager/Registry` 管理生命周期和静态目录。它们没有分裂成两个运行时。
+
+新增包在 `plugins/**` 导出 `Definition() sdk.Definition`，`go generate ./pluginregistry` 按确定性顺序生成静态 imports，不执行插件源码；生成文件应提交 Git。重复 ID 在 Registry 校验时返回错误。源码签名不正确由 Go 编译器报告。
+
+保留 `webui/`、配置和 `data/plugin-data` 完成部署。线上数据备份为私有 JSON，恢复必须是兼容的已编译插件且没有旧数据/实例，恢复后禁用。高级插件持久状态的版本升级由作者处理。旧 `plugins` 公共类型是 deprecated 的 sdk 别名，可渐进替换 import；没有重复实现两套模型。
+
+本轮不实现 `.so`、RPC/IPC、热编译、文件监听、源码上传或自动下载。未来进程外插件是否兼容同步接口需独立设计，当前不作无修改复用承诺。实际验证见 [P1.2 报告](v2-p1-sdk-dx-report.md)。

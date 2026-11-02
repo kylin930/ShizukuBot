@@ -8,13 +8,6 @@ import (
 	"sync"
 )
 
-// Definition describes a compiled Go package. New must return a fresh instance
-// for each Bot and sandbox run; shared mutable singletons are unsupported.
-type Definition struct {
-	Manifest Manifest
-	New      func() Extension
-}
-
 // Registry is a build-time catalog, without Bot state or a dynamic code loader.
 type Registry struct {
 	mu          sync.RWMutex
@@ -25,11 +18,8 @@ func NewRegistry() *Registry { return &Registry{definitions: map[string]Definiti
 
 // Register rejects incompatible definitions and duplicate IDs.
 func (r *Registry) Register(d Definition) error {
-	if err := d.Manifest.Validate(); err != nil {
+	if err := d.Validate(); err != nil {
 		return err
-	}
-	if d.New == nil {
-		return errors.New("plugin constructor required")
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()

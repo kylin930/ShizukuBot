@@ -2,7 +2,7 @@
 package pluginregistry
 
 import (
-	sdk "shizukubot/plugins"
+	"shizukubot/plugins"
 	p0 "shizukubot/plugins/autoreply"
 	p1 "shizukubot/plugins/example"
 	p2 "shizukubot/plugins/framework"
@@ -10,8 +10,8 @@ import (
 )
 
 // New returns the compiled catalog, rejecting duplicate or invalid definitions.
-func New() (*sdk.Registry, error) {
-	r := sdk.NewRegistry()
+func New() (*plugins.Registry, error) {
+	r := plugins.NewRegistry()
 	if err := r.Register(p0.Definition()); err != nil {
 		return nil, err
 	}

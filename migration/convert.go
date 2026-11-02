@@ -241,7 +241,7 @@ func convert(old legacy, id string) (plugins.Manifest, string, []string, error) 
 	}
 	code := fmt.Sprintf(`// Generated from a proven linear legacy reply. Review before registering and building.
 package migrated
-import("context";"encoding/json";"strings";"shizukubot/events";sdk "shizukubot/plugins")
+import("context";"encoding/json";"strings";"shizukubot/events";"shizukubot/sdk")
 type plugin struct{sdk.Base}
 func Definition()sdk.Definition{
  var manifest sdk.Manifest
