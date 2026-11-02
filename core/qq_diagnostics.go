@@ -7,7 +7,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/tencent-connect/botgo/errs"
+	"github.com/kylin930/botgo-plus/errs"
 	"shizukubot/events"
 )
 
