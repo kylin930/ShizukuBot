@@ -163,6 +163,9 @@ func (w *QQBotTokenSource) getNewToken() (*oauth2.Token, error) {
 	}, nil
 }
 
+// Invalidate discards cached authentication after a platform token-expired error.
+func (w *QQBotTokenSource) Invalidate() { w.cachedToken.Store(&oauth2.Token{}) }
+
 // GetAppID 获取appid
 func (w *QQBotTokenSource) GetAppID() string {
 	if w == nil || w.credentials == nil {

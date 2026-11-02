@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -123,7 +124,7 @@ func (o *openAPI) setupClient(appID string) {
 				if err := openapi.DoRespFilterChains(resp.Request.RawRequest, resp.RawResponse); err != nil {
 					return err
 				}
-				traceID := resp.Header().Get(constant.HeaderTraceID)
+				traceID := safeTraceID(resp.Header().Get(constant.HeaderTraceID))
 				o.traceMu.Lock()
 				o.lastTraceID = traceID
 				o.traceMu.Unlock()
@@ -134,6 +135,11 @@ func (o *openAPI) setupClient(appID string) {
 					code = body.ErrCode
 				}
 				if !openapi.IsSuccessStatus(resp.StatusCode()) || code != 0 {
+					if code == errs.APICodeTokenExpireOrNotExist {
+						if source, ok := o.tokenSource.(interface{ Invalidate() }); ok {
+							source.Invalidate()
+						}
+					}
 					return &errs.PlatformError{Status: resp.StatusCode(), Code: code, TraceID: traceID}
 				}
 				return nil
@@ -190,4 +196,17 @@ func createTransport(localAddr net.Addr, idleConns int) *http.Transport {
 		MaxIdleConnsPerHost:   idleConns,
 		MaxConnsPerHost:       idleConns,
 	}
+}
+
+// Correlation IDs are bounded metadata, not an arbitrary response/header dump.
+func safeTraceID(value string) string {
+	if len(value) > 128 {
+		return ""
+	}
+	if strings.IndexFunc(value, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_')
+	}) >= 0 {
+		return ""
+	}
+	return value
 }

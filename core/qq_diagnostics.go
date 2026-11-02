@@ -18,6 +18,7 @@ type QQDiagnostics struct {
 	LastEventType        string     `json:"last_event_type,omitempty"`
 	HasMessageID         bool       `json:"has_message_id"`
 	LastReplyAt          *time.Time `json:"last_reply_at,omitempty"`
+	LastSendFailureAt    *time.Time `json:"last_send_failure_at,omitempty"`
 	LastSendFailure      string     `json:"last_send_failure,omitempty"`
 	LastTransportError   string     `json:"last_transport_error,omitempty"`
 	LastTransportErrorAt *time.Time `json:"last_transport_error_at,omitempty"`
@@ -54,8 +55,6 @@ func sendCategory(err error) string {
 		return ""
 	}
 	switch {
-	case errors.Is(err, ErrActiveSendUnavailable):
-		return "active_send_unavailable"
 	case errors.Is(err, ErrMissingReplyID):
 		return "missing_reply_id"
 	case errors.Is(err, ErrReplyLimit):
@@ -70,8 +69,18 @@ func sendCategory(err error) string {
 		switch {
 		case p.Status == 401 || p.Code == 11244:
 			return "authentication"
-		case p.Status == 429 || p.Code == 22009:
+		case p.Status == 429 || p.Code == 22009 || p.Code == 40034100:
 			return "platform_limit"
+		case p.Code == 304027 || p.Code == 304103 || p.Code == 40034005 || p.Code == 40034026:
+			return "passive_reply_expired"
+		case p.Code == 40034128:
+			return "passive_reply_time_or_count_limit"
+		case p.Code == 40034101 || p.Code == 40054003:
+			return "not_group_member"
+		case p.Code == 40034105:
+			return "active_send_not_permitted"
+		case p.Code == 11253 || p.Code == 304036 || p.Code == 304037 || p.Code == 40034127:
+			return "target_or_feature_permission"
 		case p.Status == 403:
 			return "permission_or_ip_policy" // do not guess which
 		default:
@@ -100,11 +109,15 @@ func (b *Bot) RecordTransportError(category string) {
 }
 func (b *Bot) recordSend(e events.Event, kind string, err error) {
 	b.mu.Lock()
-	b.diagnostics.HTTPStatus, b.diagnostics.PlatformCode, b.diagnostics.TraceID = 0, 0, ""
 	if err == nil {
 		now := time.Now().UTC()
-		b.diagnostics.LastReplyAt = &now
+		if e.MessageID != "" || e.EventID != "" {
+			b.diagnostics.LastReplyAt = &now
+		}
 	} else {
+		now := time.Now().UTC()
+		b.diagnostics.LastSendFailureAt = &now
+		b.diagnostics.HTTPStatus, b.diagnostics.PlatformCode, b.diagnostics.TraceID = 0, 0, ""
 		b.diagnostics.LastSendFailure = sendCategory(err)
 		var p *errs.PlatformError
 		if errors.As(err, &p) {
@@ -116,8 +129,8 @@ func (b *Bot) recordSend(e events.Event, kind string, err error) {
 	b.mu.Unlock()
 	if err == nil {
 		b.Stats.IncSent()
-		b.logInfo("QQ passive reply mode=%s source=%s kind=%s success=true", b.Mode, e.Source, kind)
+		b.logInfo("QQ send mode=%s source=%s kind=%s success=true", b.Mode, e.Source, kind)
 	} else {
-		b.logError("QQ passive reply mode=%s source=%s kind=%s category=%s error=%s", b.Mode, e.Source, kind, sendCategory(err), fmt.Sprint(err))
+		b.logError("QQ send mode=%s source=%s kind=%s category=%s error=%s", b.Mode, e.Source, kind, sendCategory(err), fmt.Sprint(err))
 	}
 }

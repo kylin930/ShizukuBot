@@ -166,7 +166,8 @@ type InputNotify struct {
 
 // MediaInfo 富媒体信息
 type MediaInfo struct {
-	FileUUID string `json:"file_uuid,omitempty"` // 文件ID
-	FileInfo []byte `json:"file_info,omitempty"` // 富媒体文件信息，通过上传接口取得
-	TTL      int    `json:"ttl,omitempty"`       // 有效期，单位秒
+	FileUUID    string `json:"file_uuid,omitempty"` // 文件ID
+	FileInfo    []byte `json:"file_info,omitempty"`
+	FileInfoRaw string `json:"-"`             // 富媒体文件信息，通过上传接口取得
+	TTL         int    `json:"ttl,omitempty"` // 有效期，单位秒
 }
