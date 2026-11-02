@@ -14,6 +14,19 @@ go build -o shizukubot .
 
 Windows 使用 `go build -o shizukubot.exe .`。从仓库根目录运行，保留 `webui/` 静态文件；WebUI 初始端口 4545。首次管理员密码写入本机 `data/.admin-initial-password`，不输出到日志；登录后请修改密码。QQ 凭证填写在本机配置中。HTTPS 反向代理部署设置 `webui.secure_cookies: true`，保留正确 Host；安全状态不直接取自代理协议头。
 
+## QQ 官方接入与联调
+
+新 Bot 默认使用签名 Webhook：`/webhook/{botID}`；显式 WebSocket 配置继续兼容。
+插件 SDK、内置命令和规则共用事件级被动回复上下文，携带原始 `msg_id`，并发安全
+分配 `msg_seq`（当前官网：C2C 最多 4 次、群聊 5 次；失败/超时也计入尝试）。
+主动管理 API 不复用入站消息 ID，平台权限/限频错误会明确返回。
+
+Bot 管理页可展开 QQ 联调诊断；没有事件/回复证据时显示“尚未验证”。
+先用 `go run ./cmd/qq-diagnose --bot 你的BotID` 离线检查，再按
+[真实测试机器人接入指南](docs/qq-integration-guide.md) 配置 HTTPS、测试成员和权限。
+**本次没有真实 QQ 凭证，真实 Token/官方回调/客户端收信尚未验证。**
+Mock 测试通过不等于真实平台验收通过；协议版本差异见 [审查记录](docs/qq-protocol-audit.md)。
+
 ## Go 插件
 
 插件是普通 Go package，公共 API 在 `shizukubot/sdk`。最小 Ping 无需结构体、工厂或空生命周期：
@@ -79,10 +92,16 @@ go build -o shizukubot .
 ## 验证与文档
 
 ```sh
+go test ./...
 go test -race ./...
+go vet ./...
+go build ./...
+# 独立 QQ HTTP 请求协议回归，不需要凭证：
+go test ./core ./webhook ./transport/qq -run 'TestQQ|TestWebhook|TestSigned|TestGateway'
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o shizukubot.exe .
 ```
 
+- [P2.3 QQ 联调交付报告](docs/v2-p2-qq-integration-report.md)
 - [架构](docs/architecture-v2.md)
 - [插件开发](docs/plugin-development.md) / [Go SDK](docs/plugin-sdk.md)
 - [旧数据迁移与回滚](docs/legacy-migration.md)

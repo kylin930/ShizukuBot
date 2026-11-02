@@ -76,3 +76,26 @@ Store 用 os.Root 限定目录，以 BotID 的 SHA-256 文件名隔离；文件�
 Execute/Preview 共享纯 Match 和同一 evaluate 循环。Preview 替换为捕获 sender，不发布到 Bus、不调用生产插件、不写配置或状态。规则 API 必须验证真实 Bot 和管理员，CAS 冲突保留草稿。Router.Close 先取消规则生命周期、取消订阅并等待在途调用，再关闭插件管理器；5 秒执行超时及关闭仍是合作取消，不另开无法回收的强杀 goroutine。
 
 `AdminUI` 暴露中立的安全 DOM/请求/作用域/未保存保护工具，PluginUI 保留兼容导出和私有插件选择状态，规则页拥有自己的 Bot/草稿状态。只增加一个 Rail 与 Drawer 入口；没有更换 MDUI、SDK、Manifest 或 Registry。没有正则、冷却、定时、脚本、工作流、网络/文件动作或新的依赖。
+
+
+## QQ reply capability (P2.3)
+
+Both signed Webhook and explicit WebSocket route through Bot.HandlePayloadAccepted
+→ Normalize → existing Dispatcher/dedup → existing Bus. No second dispatcher or
+SDK global handlers are introduced. Event.Reply captures routing, message/event
+association, event cancellation and one mutex-protected sequence counter. The
+same closure crosses builtins, Go SDK helpers and rules without extending sdk.Call.
+It cannot outlive dispatch. C2C attempts are bounded at 4, group at 5 per current
+published protocol; sequence reservation precedes final POST and is never rolled
+back after uncertain delivery. Uploads use srv_send_msg:false; only final messages
+receive association and sequence. Active APIs retain their signatures, create no
+fake event and do not use passive IDs. See [protocol audit](qq-protocol-audit.md)
+for current-vs-historical protocol differences and supported event_id boundaries.
+
+Webhook ACK reflects admission, separately from downstream handler errors. Stopped
+Bot callbacks request retry. Processing has a cooperative 10-second callback budget;
+plugins remain trusted in-process code. Diagnostics are one bounded latest snapshot
+per Bot, served in authenticated BotInfo and displayed inside existing MDUI cards.
+No full event/message, target IDs, credential data or unbounded history is collected.
+OpenAPI acceptance, event receipt and runtime Running are separate observations;
+none proves QQ client delivery. Sandboxes never receive a real QQ sender.
