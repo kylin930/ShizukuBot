@@ -99,3 +99,15 @@ per Bot, served in authenticated BotInfo and displayed inside existing MDUI card
 No full event/message, target IDs, credential data or unbounded history is collected.
 OpenAPI acceptance, event receipt and runtime Running are separate observations;
 none proves QQ client delivery. Sandboxes never receive a real QQ sender.
+
+
+## SDK ownership after P2.3.1
+
+Current QQ transport types come exclusively from the pinned external
+`github.com/kylin930/botgo-plus` module. ShizukuBot contains no SDK source tree,
+SDK submodule, vendor copy or local SDK replace. The framework keeps ownership
+of Event.Reply, cancellation and sequence allocation; botgo-plus owns DTO/wire,
+HTTP/error/trace, token and signature compatibility. Application EventBus,
+Dispatcher, plugin SDK, rules, multiple Bot instances and MDUI behavior stay the
+same. Historical P0–P2.3 reports retain their original dependency facts and are
+marked as historical; see [migration report](v2-p23-botgo-plus-migration-report.md).

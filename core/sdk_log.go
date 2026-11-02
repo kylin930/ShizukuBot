@@ -1,13 +1,12 @@
 package core
 
 import (
-	sdklog "github.com/tencent-connect/botgo/log"
+	sdklog "github.com/kylin930/botgo-plus/log"
 	"log"
 )
 
-// The bundled SDK logs credential request bodies and access tokens at Debug.
-// Its logger hook is configured once before any bots start. Business errors are
-// reported separately with BotID; SDK diagnostics must never include raw arguments.
+// Preserve the logger hook as defense in depth across SDK revisions. Per-Bot
+// diagnostics are reported separately; arbitrary SDK arguments are not forwarded.
 func init() { sdklog.DefaultLogger = safeSDKLogger{} }
 
 type safeSDKLogger struct{}

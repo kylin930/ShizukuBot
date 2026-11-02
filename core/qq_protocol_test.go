@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tencent-connect/botgo"
-	"github.com/tencent-connect/botgo/errs"
-	"github.com/tencent-connect/botgo/openapi"
+	"github.com/kylin930/botgo-plus"
+	"github.com/kylin930/botgo-plus/errs"
+	"github.com/kylin930/botgo-plus/openapi"
 	"shizukubot/events"
 	"shizukubot/plugins"
 	"shizukubot/plugins/hello"

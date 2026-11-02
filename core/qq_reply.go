@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/tencent-connect/botgo/dto"
-	"github.com/tencent-connect/botgo/dto/keyboard"
+	"github.com/kylin930/botgo-plus/dto"
+	"github.com/kylin930/botgo-plus/dto/keyboard"
 	"shizukubot/events"
 )
 

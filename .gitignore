@@ -40,7 +40,7 @@ upload.py
 Gensokyo-main/
 ShizukuBot/
 
-# botgo-master/ is the pinned local SDK dependency.
+# QQ SDK is fetched as a pinned external Go module.
 
 # ===== IDE / 工具 =====
 .arts/

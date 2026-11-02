@@ -3,20 +3,18 @@ module shizukubot
 go 1.26
 
 require (
-	github.com/go-resty/resty/v2 v2.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/sessions v1.2.2
 	github.com/gorilla/websocket v1.5.1
+	github.com/kylin930/botgo-plus v0.0.0-20261102144408-979b74884c88
 	github.com/shirou/gopsutil/v3 v3.24.5
-	github.com/tencent-connect/botgo v0.14.0
 	golang.org/x/crypto v0.54.0
 	golang.org/x/oauth2 v0.23.0
 )
 
-replace github.com/tencent-connect/botgo => ./botgo-master
-
 require (
 	github.com/go-ole/go-ole v1.2.6 // indirect
+	github.com/go-resty/resty/v2 v2.6.0 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect

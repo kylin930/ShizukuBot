@@ -1,5 +1,8 @@
 # ShizukuBot v2 P0 交付报告
 
+> 历史实现说明：本文件保留当时的 SDK 路径与验证事实。当前编译依赖已迁移到独立 botgo-plus，根目录 botgo-master 已移除；见 [P2.3.1 迁移报告](v2-p23-botgo-plus-migration-report.md)。
+
+
 > 历史 P0 报告：其中后续阶段的技术建议已由纯 Go 决策替代。当前架构与验证见 [P1 Go 纠偏报告](v2-p1-go-correction.md)。
 ## 基线和范围
 
