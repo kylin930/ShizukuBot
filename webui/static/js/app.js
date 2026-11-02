@@ -57,11 +57,19 @@ async function apiDelete(url) {
 }
 
 // ==================== 路由管理 ====================
-function navigateTo(route) {
+let routeRenderTimer = null;
+async function navigateTo(route) {
+    if (!await window.PluginUI.mayLeave()) {syncNavigation(currentRoute); return false;}
+    window.PluginUI.dispose();
     currentRoute = route;
     window.location.hash = route;
     renderPage();
 
+    syncNavigation(route);
+    return true;
+}
+
+function syncNavigation(route) {
     // 更新移动端导航项激活状态
     document.querySelectorAll('.nav-item').forEach(item => {
         item.active = item.dataset.route === route;
@@ -92,7 +100,8 @@ function renderPage() {
     content.classList.remove('fade-in');
     content.classList.add('fade-out');
 
-    setTimeout(() => {
+    clearTimeout(routeRenderTimer);
+    routeRenderTimer = setTimeout(() => {
         if (statsRefreshTimer) {
             clearInterval(statsRefreshTimer);
             statsRefreshTimer = null;
@@ -107,9 +116,9 @@ function renderPage() {
             case '/bots':      renderBots(content); break;
             case '/logs':      renderLogs(content); break;
             case '/api-test':  renderApiTest(content); break;
-            case '/plugins':   renderPlugins(content); break;
+            case '/plugins':   window.PluginPages.renderPlugins(content); break;
             case '/community': renderCommunity(content); break;
-            case '/sandbox':   renderSandbox(content); break;
+            case '/sandbox':   window.SandboxPage.render(content); break;
             case '/config':    renderConfig(content); break;
             case '/users':     renderUsers(content); break;
             case '/about':     renderAbout(content); break;
@@ -118,7 +127,7 @@ function renderPage() {
 
         content.classList.remove('fade-out');
         content.classList.add('fade-in');
-    }, 500);
+    }, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180);
 }
 
 // ==================== 统计页 ====================
@@ -535,64 +544,6 @@ async function sendApiRequest() {
     }
 }
 
-// ==================== 插件页 ====================
-let currentPlugin = null;
-let pluginBotId = '';
-async function renderPlugins(container) {
-    container.innerHTML = `<div class="page-title">代码插件</div>
-      <mdui-card variant="outlined" style="padding:16px;margin-bottom:16px">
-        <p>插件来自已编译注册的 Go package。添加或修改源码后需注册、重新构建并部署；启停和配置可直接在这里管理。</p>
-        <input type="file" accept=".json" id="plugin-data-backup">
-        <mdui-button variant="outlined" id="restore-plugin-data">恢复配置与状态备份</mdui-button>
-        <p>备份只含私有数据。恢复要求插件已编译注册、没有已有配置或实例，恢复后保持禁用。</p>
-      </mdui-card>
-      <div class="plugins-layout"><mdui-list id="plugins-list"></mdui-list><mdui-card variant="outlined" id="plugin-details" style="padding:16px;overflow:auto">选择插件查看信息、按 Bot 配置与运行状态。</mdui-card></div>`;
-    document.getElementById('restore-plugin-data').onclick = async () => {
-        try {
-            const file = document.getElementById('plugin-data-backup').files[0];
-            if (!file || file.size > 4 * 1024 * 1024) throw Error('请选择不超过 4 MiB 的 JSON 数据备份');
-            const result = await apiPost('/api/plugins/data/restore', JSON.parse(await file.text()));
-            if (result.code !== 0) throw Error(result.message);
-            showSnackbar('数据已恢复，插件保持禁用'); await loadPluginsList();
-        } catch(error) { showSnackbar(error?.message || '恢复失败'); }
-    };
-    await loadPluginsList();
-}
-async function loadPluginsList() {
-    const result = await apiGet('/api/plugins');
-    if (result.code !== 0) {showSnackbar(result.message);return;}
-    const list = document.getElementById('plugins-list');
-    list.innerHTML = result.data.length ? result.data.map(p=>`<mdui-list-item headline="${escapeHtml(p.name)}" description="${escapeHtml(p.runtime+' · '+p.version)}" data-plugin-id="${escapeHtml(p.id)}" icon="extension"></mdui-list-item>`).join('') : '<mdui-list-item headline="暂无代码插件"></mdui-list-item>';
-    list.querySelectorAll('[data-plugin-id]').forEach(item=>item.onclick=()=>loadPluginEditor(item.dataset.pluginId));
-}
-async function loadPluginEditor(id) {
-    const result = await apiGet(`/api/plugins/${encodeURIComponent(id)}?bot_id=${encodeURIComponent(pluginBotId)}`);
-    if (result.code !== 0) {showSnackbar(result.message);return;}
-    currentPlugin=result.data;
-    const p=currentPlugin, host=document.getElementById('plugin-details');
-    host.innerHTML=`<h2>${escapeHtml(p.name)} <small>${escapeHtml(p.version)}</small></h2><p>${escapeHtml(p.description||'')}</p>
-      <p>运行时：${escapeHtml(p.runtime)} · 权限：${escapeHtml((p.permissions||[]).join(', '))}</p><p>此插件已编译进主程序。配置保存后会重启已启用实例，无需重新编译。</p>
-      <mdui-text-field id="plugin-bot" label="Bot ID（可输入独立调试标识）" value="${escapeHtml(pluginBotId)}"></mdui-text-field>
-      <p>配置与状态按 Bot 隔离。修改 Bot ID 后会读取该 Bot 的配置。</p>
-      <mdui-text-field id="plugin-config" label="插件配置 JSON" rows="7"></mdui-text-field>
-      <details><summary>配置规范</summary><pre>${escapeHtml(JSON.stringify(p.config_schema,null,2))}</pre></details>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin:16px 0">
-        <mdui-button id="save-code-config">保存配置</mdui-button>
-        <mdui-button id="enable-code-plugin" variant="filled">${p.enabled?'禁用':'启用'}</mdui-button>
-        <mdui-button id="restart-code-plugin">重启 / 重载</mdui-button>
-        <mdui-button id="backup-code-plugin">备份配置与状态</mdui-button>
-      </div><h3>实例与错误</h3><pre>${escapeHtml(JSON.stringify(p.instances,null,2))}</pre>`;
-    document.getElementById('plugin-config').value=JSON.stringify(p.config||{},null,2);
-    document.getElementById('plugin-bot').onchange=async event=>{pluginBotId=event.target.value.trim();await loadPluginEditor(id);};
-    const run=action=>async()=>{try{if(!pluginBotId)throw Error('请填写 Bot ID');await action();await loadPluginEditor(id);await loadPluginsList();}catch(error){showSnackbar(error?.message || '已取消');}};
-    const checked=async promise=>{const value=await promise;if(value.code!==0)throw Error(value.message);return value;};
-    document.getElementById('save-code-config').onclick=run(async()=>{const config=JSON.parse(document.getElementById('plugin-config').value);await checked(apiPut(`/api/plugins/${id}`,{bot_id:pluginBotId,config}));if(p.enabled)await checked(apiPost(`/api/plugins/${id}/restart`,{bot_id:pluginBotId}));showSnackbar('配置已保存');});
-    document.getElementById('enable-code-plugin').onclick=run(async()=>{await checked(apiPost(`/api/plugins/${id}/toggle`,{bot_id:pluginBotId,enabled:!p.enabled}));});
-    document.getElementById('restart-code-plugin').onclick=run(()=>checked(apiPost(`/api/plugins/${id}/restart`,{bot_id:pluginBotId})));
-    const download=async()=>{try{const response=await fetch(`/api/plugins/${id}/export`);if(!response.ok||!response.headers.get('Content-Type')?.includes('application/json'))throw Error('导出失败');const url=URL.createObjectURL(await response.blob());const a=document.createElement('a');a.href=url;a.download=id+'-data.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(error){showSnackbar(error?.message||'导出失败');}};
-    document.getElementById('backup-code-plugin').onclick=()=>download();
-}
-
 // ==================== 配置页 ====================
 async function renderConfig(container) {
     container.innerHTML = `
@@ -753,6 +704,7 @@ async function saveConfig() {
     try {
         // 更新 configData
         configData.webui = {
+            ...configData.webui,
             port: parseInt(document.getElementById('webui-port').value) || 4545,
             enabled: document.getElementById('webui-enabled').checked,
             password: document.getElementById('webui-password').value
@@ -779,11 +731,11 @@ async function saveConfig() {
         botItems.forEach(item => {
             const index = parseInt(item.dataset.index);
             configData.bots[index] = {
+                ...configData.bots[index],
                 id: item.querySelector('.bot-config-id').value,
                 name: item.querySelector('.bot-config-name').value,
                 app_id: item.querySelector('.bot-config-appid').value,
                 app_secret: item.querySelector('.bot-config-appsecret').value,
-                enabled: false,
                 mode: item.querySelector('.bot-config-mode').value
             };
         });
@@ -1321,134 +1273,6 @@ function showBotConfigDialog(botId, container) {
             ]
         });
     });
-}
-
-// ==================== 沙盒页面 ====================
-let sandboxType = 'c2c';
-let sandboxMessages = [];
-let sandboxPluginId = ''; // 空表示执行所有启用插件
-let sandboxPluginsCache = [];
-
-async function renderSandbox(container) {
-    // 沙盒使用虚拟机器人，不依赖生产环境的真实机器人
-    let sandboxBotId = pluginBotId;
- if (!sandboxBotId) {try {sandboxBotId = await mdui.prompt({headline:'沙盒 Bot ID',description:'填写实际 Bot ID 或独立调试标识'});pluginBotId=sandboxBotId.trim();} catch {return;} }
- if(!sandboxBotId)return;
-
-    // 加载插件列表
-    try {
-        const resp = await fetch(`/api/bots/${sandboxBotId}/sandbox/plugins`);
-        const data = await resp.json();
-        sandboxPluginsCache = Array.isArray(data) ? data : (data.data || []);
-    } catch (e) {
-        sandboxPluginsCache = [];
-    }
-
-    const pluginOptions = [
-        { id: '', name: '全部启用插件' },
-        ...sandboxPluginsCache.map(p => ({ id: p.id, name: p.name || p.id, enabled: p.enabled }))
-    ];
-
-    container.innerHTML = `
-        <div class="page-title">沙盒测试</div>
-        <div style="margin-bottom:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-            <mdui-segmented-button-group value="${sandboxType}" id="sandbox-type-select">
-                <mdui-segmented-button value="c2c">私聊</mdui-segmented-button>
-                <mdui-segmented-button value="group">群聊</mdui-segmented-button>
-            </mdui-segmented-button-group>
-            <mdui-select id="sandbox-plugin-select" label="测试插件" value="${sandboxPluginId}" style="min-width:200px">
-                ${pluginOptions.map(p => `<mdui-menu-item value="${escapeHtml(p.id)}">${escapeHtml(p.name)}${p.enabled === false ? ' (未启用)' : ''}</mdui-menu-item>`).join('')}
-            </mdui-select>
-            <mdui-button variant="outlined" icon="delete_sweep" id="sandbox-clear">清空对话</mdui-button>
-        </div>
-        <mdui-card variant="outlined" style="display:flex;flex-direction:column;height:calc(100vh - 220px);overflow:hidden">
-            <div id="sandbox-chat" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px">
-                ${sandboxMessages.length === 0 ? '<div style="text-align:center;color:var(--mdui-color-on-surface-variant);padding:40px 0">在下方输入消息测试机器人回复</div>' : ''}
-                ${sandboxMessages.map(m => renderSandboxMessage(m)).join('')}
-            </div>
-            <mdui-divider></mdui-divider>
-            <div style="padding:12px;display:flex;gap:8px;align-items:center">
-                <mdui-text-field id="sandbox-input" label="输入消息" variant="outlined" style="flex:1" rows="1"></mdui-text-field>
-                <mdui-button-icon icon="send" id="sandbox-send"></mdui-button-icon>
-            </div>
-        </mdui-card>
-    `;
-
-    const typeSelect = document.getElementById('sandbox-type-select');
-    const pluginSelect = document.getElementById('sandbox-plugin-select');
-    const chatArea = document.getElementById('sandbox-chat');
-    const inputField = document.getElementById('sandbox-input');
-    const sendBtn = document.getElementById('sandbox-send');
-    const clearBtn = document.getElementById('sandbox-clear');
-
-    typeSelect?.addEventListener('change', (e) => { sandboxType = e.target.value; });
-    pluginSelect?.addEventListener('change', (e) => { sandboxPluginId = e.target.value; });
-
-    clearBtn?.addEventListener('click', () => {
-        sandboxMessages = [];
-        renderSandbox(container);
-    });
-
-    const sendMessage = async () => {
-        const content = inputField?.value?.trim();
-        if (!content) return;
-
-        sandboxMessages.push({ type: 'user', content, sandboxType });
-        inputField.value = '';
-
-        chatArea.innerHTML = sandboxMessages.map(m => renderSandboxMessage(m)).join('');
-        chatArea.scrollTop = chatArea.scrollHeight;
-
-        try {
-            const resp = await fetch(`/api/bots/${sandboxBotId}/sandbox/send`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type: sandboxType, content, plugin_id: sandboxPluginId })
-            });
-            const data = await resp.json();
-
-            if (data.errors?.length) data.errors.forEach(error=>sandboxMessages.push({type:'error',content:error}));
-            if (data.replies && data.replies.length > 0) {
-                data.replies.forEach(reply => {
-                    sandboxMessages.push({ type: 'bot', content: reply });
-                });
-            } else {
-                sandboxMessages.push({ type: 'bot', content: '(无回复)' });
-            }
-        } catch (e) {
-            sandboxMessages.push({ type: 'error', content: '请求失败: ' + e.message });
-        }
-
-        chatArea.innerHTML = sandboxMessages.map(m => renderSandboxMessage(m)).join('');
-        chatArea.scrollTop = chatArea.scrollHeight;
-    };
-
-    sendBtn?.addEventListener('click', sendMessage);
-    inputField?.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            sendMessage();
-        }
-    });
-}
-
-function renderSandboxMessage(msg) {
-    if (msg.type === 'user') {
-        const label = msg.sandboxType === 'group' ? '群聊' : '私聊';
-        return `<div style="align-self:flex-end;max-width:70%">
-            <div style="font-size:12px;color:var(--mdui-color-on-surface-variant);text-align:right;margin-bottom:4px">${label} - 数据</div>
-            <div style="background:var(--mdui-color-primary-container);color:var(--mdui-color-on-primary-container);padding:10px 14px;border-radius:12px 12px 4px 12px;word-break:break-word">${escapeHtml(msg.content)}</div>
-        </div>`;
-    } else if (msg.type === 'bot') {
-        return `<div style="align-self:flex-start;max-width:70%">
-            <div style="font-size:12px;color:var(--mdui-color-on-surface-variant);margin-bottom:4px">机器人</div>
-            <div style="background:var(--mdui-color-secondary-container);color:var(--mdui-color-on-secondary-container);padding:10px 14px;border-radius:12px 12px 12px 4px;word-break:break-word">${escapeHtml(msg.content)}</div>
-        </div>`;
-    } else {
-        return `<div style="align-self:center;max-width:80%">
-            <div style="background:var(--mdui-color-error-container);color:var(--mdui-color-on-error-container);padding:8px 14px;border-radius:8px;font-size:13px;word-break:break-word">${escapeHtml(msg.content)}</div>
-        </div>`;
-    }
 }
 
 // ==================== 工具函数 ====================

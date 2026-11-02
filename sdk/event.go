@@ -1,6 +1,10 @@
 package sdk
 
-import "shizukubot/events"
+import (
+	"shizukubot/events"
+	"unicode"
+	"unicode/utf8"
+)
 
 // Event is the shared transport-neutral event, not a copy or a QQ SDK DTO.
 type Event = events.Event
@@ -27,3 +31,17 @@ const (
 	C2CManage              EventType = "c2c_manage"
 	AnyEvent               EventType = "*"
 )
+
+// ValidEventType accepts bounded nonempty canonical/custom event names without
+// whitespace or control characters. It does not restrict names to built-in types.
+func ValidEventType(typ EventType) bool {
+	if len(typ) == 0 || len(typ) > 128 || !utf8.ValidString(string(typ)) {
+		return false
+	}
+	for _, r := range typ {
+		if unicode.IsSpace(r) || unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
+}

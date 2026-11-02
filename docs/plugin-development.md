@@ -70,7 +70,7 @@ sdk.WithConfig(sdk.Schema{
 })
 ```
 
-WithConfig 同时授予 config.read。事件回调读取 `c.Config["keyword"]`、`c.Config["reply"]`，完整可运行例子见 `plugins/autoreply`，仍使用 EventPlugin。配置和状态按插件/Bot 隔离，未知字段拒绝。WebUI 保存配置会重启已启用实例以应用新快照，无需重新编译。
+Schema 可设置 `description` 给管理员展示字段说明，例如 `{Type: "string", Description: "回复文本"}`。WithConfig 同时授予 config.read。事件回调读取 `c.Config["keyword"]`、`c.Config["reply"]`，完整可运行例子见 `plugins/autoreply`，仍使用 EventPlugin。配置和状态按插件/Bot 隔离，未知字段拒绝。WebUI 使用通用 Schema 表单及高级 JSON 编辑，按所选真实 Bot 保存。只有需要新快照的活动实例才重启；若重启失败，配置保存与运行失败会分别显示，无需重新编译。
 
 Schema 支持 object、string、boolean、number、integer、array、properties、required、default、enum、minimum、maximum、items；是有限方言，不是完整 JSON Schema。不要放入核心凭证。
 
@@ -117,3 +117,5 @@ Define 默认授予指令注册、事件订阅和回复；不授予配置、状�
 保留 `webui/`、配置和 `data/plugin-data` 完成部署。线上数据备份为私有 JSON，恢复必须是兼容的已编译插件且没有旧数据/实例，恢复后禁用。高级插件持久状态的版本升级由作者处理。旧 `plugins` 公共类型是 deprecated 的 sdk 别名，可渐进替换 import；没有重复实现两套模型。
 
 本轮不实现 `.so`、RPC/IPC、热编译、文件监听、源码上传或自动下载。未来进程外插件是否兼容同步接口需独立设计，当前不作无修改复用承诺。实际验证见 [P1.2 报告](v2-p1-sdk-dx-report.md)。
+
+管理员操作、沙盒配置来源及 4 MiB 私有数据备份限制见 [插件管理与沙盒](webui-plugin-management.md)。EventPlugin 按首次出现顺序去重事件类型；自定义类型仍支持，但名称必须为有效 UTF-8，非空、无空白或控制字符且不超过 128 字节。

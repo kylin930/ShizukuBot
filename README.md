@@ -44,7 +44,7 @@ func Definition() sdk.Definition {
 | `plugins/autoreply` | EventPlugin：按 Bot 配置关键词和回复 |
 | `plugins/example` | Advanced：生命周期、配置与持久计数 |
 
-另保留 `plugins/framework` 的 `/framework` 指令。默认不启用；在 WebUI 选择 Bot，保存配置后启用。配置、启停、重启和沙盒操作无需重新编译。
+另保留 `plugins/framework` 的 `/framework` 指令。默认不启用；在 WebUI 从真实 Bot 下拉列表选择机器人，用 Schema 表单保存配置后启用。配置、启停、重启和沙盒操作无需重新编译。
 
 新增插件在 `plugins/<name>/plugin.go` 导出 `Definition() sdk.Definition`。Simple 构造器自动创建新实例；Advanced 工厂也必须为每个 Bot 返回新对象。源码变更须审核、生成注册表、测试、构建并重新部署：
 
@@ -54,7 +54,7 @@ go test ./sdk ./plugins/... ./pluginregistry
 go build -o shizukubot .
 ```
 
-WebUI 只管理已编译插件，支持配置/状态数据备份与恢复；不上传源码安装运行。插件运行于主进程，必须可信并遵守 context；调试沙盒捕获回复、隔离临时状态，不提供文件/网络安全隔离。
+WebUI 只管理已编译插件，提供搜索筛选、独立状态、Schema 表单及 JSON 编辑、实例启停、配置/状态备份和结构化沙盒。保存可应用到当前插件实例；不上传源码安装运行。用法见 [插件管理与沙盒](docs/webui-plugin-management.md)。插件运行于主进程，必须可信并遵守 context；调试沙盒捕获回复、隔离临时状态，不提供文件/网络安全隔离。
 
 ## 旧数据升级
 
@@ -80,5 +80,6 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o shizukubot.exe .
 - [架构](docs/architecture-v2.md)
 - [插件开发](docs/plugin-development.md) / [Go SDK](docs/plugin-sdk.md)
 - [旧数据迁移与回滚](docs/legacy-migration.md)
+- [P2.1 插件后台与沙盒交付报告](docs/v2-p2-plugin-ui-report.md)
 - [P1.2 SDK 开发体验与测试报告](docs/v2-p1-sdk-dx-report.md)
 - [P1 Go 纠偏历史报告](docs/v2-p1-go-correction.md)

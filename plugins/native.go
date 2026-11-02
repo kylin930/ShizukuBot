@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"shizukubot/events"
+	"shizukubot/sdk"
 	"sync"
 )
 
@@ -46,7 +47,7 @@ func (n *Native) On(typ events.Type, h func(context.Context, Call) error) error 
 	if n.sealed {
 		return errors.New("registrations are sealed after Start")
 	}
-	if typ == "" || h == nil {
+	if !sdk.ValidEventType(typ) || h == nil {
 		return errors.New("invalid subscription")
 	}
 	if len(n.listeners[typ]) == 0 {

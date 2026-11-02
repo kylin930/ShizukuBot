@@ -2,6 +2,7 @@ package webui
 
 import (
 	"crypto/tls"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -52,5 +53,34 @@ func TestCookieTLSConfigurationAndUntrustedHeaders(t *testing.T) {
 	InitSessionStore("test-session-signing-secret")
 	if !store.Options.Secure || store.Options.SameSite != http.SameSiteLaxMode || !store.Options.HttpOnly {
 		t.Fatal("production cookie policy")
+	}
+}
+
+func TestBackupRouteHasBoundedDedicatedBodyQuota(t *testing.T) {
+	next := SecurityMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := io.ReadAll(r.Body); err != nil {
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	for _, tc := range []struct {
+		method, path string
+		size, want   int
+	}{
+		{"POST", "/api/config", (2 << 20) + 1, 413},
+		{"POST", "/api/plugins/data/restore", 3 << 20, 204},
+		{"POST", "/api/plugins/data/restore", 4 << 20, 204},
+		{"POST", "/api/plugins/data/restore", (4 << 20) + 1, 413},
+		{"PUT", "/api/plugins/data/restore", 3 << 20, 413},
+		{"POST", "/api/plugins/data/restore/other", 3 << 20, 413},
+	} {
+		req := httptest.NewRequest(tc.method, "http://example.com"+tc.path, strings.NewReader(strings.Repeat(" ", tc.size)))
+		req.Header.Set("Content-Type", "application/json")
+		out := httptest.NewRecorder()
+		next.ServeHTTP(out, req)
+		if out.Code != tc.want {
+			t.Fatal(tc, out.Code)
+		}
 	}
 }

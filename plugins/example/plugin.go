@@ -25,7 +25,7 @@ func Definition() sdk.Definition {
 		Manifest: sdk.Manifest{
 			APIVersion: sdk.APIVersion, ID: "counter", Name: "独立计数器", Version: "1.0.0", Runtime: "go",
 			Permissions:  []string{"commands.register", "message.send", "config.read", "state.read", "state.write"},
-			ConfigSchema: sdk.Schema{Type: "object", Properties: map[string]sdk.Schema{"prefix": {Type: "string", Default: []byte(`"计数"`)}}},
+			ConfigSchema: sdk.Schema{Type: "object", Properties: map[string]sdk.Schema{"prefix": {Description: "计数回复的文字前缀", Type: "string", Default: []byte(`"计数"`)}}},
 		},
 		New: func() sdk.Extension { return &Plugin{} },
 	}

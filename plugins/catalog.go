@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -127,4 +128,34 @@ func (m *Manager) saveSettings(id, bot string, update func(*Settings)) error {
 	}
 	m.settings = all
 	return nil
+}
+
+// NeedsRestart compares saved effective settings with the running snapshot.
+// Disabled instances apply saved settings on their next Enable.
+func (m *Manager) NeedsRestart(id, bot string) bool {
+	mf, _, err := m.manifest(id)
+	if err != nil {
+		return false
+	}
+	value, err := mf.ConfigSchema.Validate(m.Config(id, bot).Config)
+	if err != nil {
+		return false
+	}
+	saved, err := json.Marshal(value)
+	if err != nil {
+		return false
+	}
+	m.mu.RLock()
+	s := m.slots[id+"\x00"+bot]
+	m.mu.RUnlock()
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.status.Enabled {
+		return false
+	}
+	applied, err := json.Marshal(s.config)
+	return err == nil && !bytes.Equal(saved, applied)
 }

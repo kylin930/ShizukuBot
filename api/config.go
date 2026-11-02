@@ -38,12 +38,7 @@ func (r *Router) GetConfig(w http.ResponseWriter, req *http.Request) {
 	bots := r.botManager.GetAllBots()
 	result.Bots = make([]BotInfo, 0, len(bots))
 	for _, bot := range bots {
-		result.Bots = append(result.Bots, BotInfo{
-			ID:      bot.ID,
-			Name:    bot.Name,
-			AppID:   bot.AppID,
-			Enabled: bot.IsEnabled(),
-		})
+		result.Bots = append(result.Bots, botInfo(bot))
 	}
 
 	SuccessResponse(w, result)

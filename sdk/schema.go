@@ -8,14 +8,15 @@ import (
 
 // Schema implements a documented, intentionally small JSON Schema subset.
 type Schema struct {
-	Type       string            `json:"type"`
-	Properties map[string]Schema `json:"properties,omitempty"`
-	Required   []string          `json:"required,omitempty"`
-	Default    json.RawMessage   `json:"default,omitempty"`
-	Enum       []any             `json:"enum,omitempty"`
-	Minimum    *float64          `json:"minimum,omitempty"`
-	Maximum    *float64          `json:"maximum,omitempty"`
-	Items      *Schema           `json:"items,omitempty"`
+	Description string            `json:"description,omitempty"`
+	Type        string            `json:"type"`
+	Properties  map[string]Schema `json:"properties,omitempty"`
+	Required    []string          `json:"required,omitempty"`
+	Default     json.RawMessage   `json:"default,omitempty"`
+	Enum        []any             `json:"enum,omitempty"`
+	Minimum     *float64          `json:"minimum,omitempty"`
+	Maximum     *float64          `json:"maximum,omitempty"`
+	Items       *Schema           `json:"items,omitempty"`
 }
 
 // Validate returns a validated configuration with defaults applied.
@@ -89,7 +90,7 @@ func (s Schema) Validate(value any) (any, error) {
 		for i, v := range a {
 			n, err := s.Items.Validate(v)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("[%d]: %w", i, err)
 			}
 			out[i] = n
 		}

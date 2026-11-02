@@ -13,8 +13,8 @@ func Definition() sdk.Definition {
 		sdk.Meta{ID: "autoreply", Name: "关键词自动回复", Version: "1.0.0"},
 		[]sdk.EventType{sdk.GroupMessage, sdk.GroupAtMessage, sdk.C2CMessage}, Respond,
 		sdk.WithConfig(sdk.Schema{Type: "object", Properties: map[string]sdk.Schema{
-			"keyword": {Type: "string", Default: []byte(`"你好"`)},
-			"reply":   {Type: "string", Default: []byte(`"你好！"`)},
+			"keyword": {Description: "消息包含此关键词时回复，留空表示不回复", Type: "string", Default: []byte(`"你好"`)},
+			"reply":   {Description: "关键词命中后发送的文本", Type: "string", Default: []byte(`"你好！"`)},
 		}}),
 	)
 }
