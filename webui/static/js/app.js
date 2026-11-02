@@ -84,6 +84,7 @@ function syncNavigation(route) {
             '/logs': 'logs',
             '/api-test': 'api-test',
             '/plugins': 'plugins',
+            '/rules': 'rules',
             '/community': 'community',
             '/sandbox': 'sandbox',
             '/config': 'config',
@@ -117,6 +118,7 @@ function renderPage() {
             case '/logs':      renderLogs(content); break;
             case '/api-test':  renderApiTest(content); break;
             case '/plugins':   window.PluginPages.renderPlugins(content); break;
+            case '/rules':     window.RulesPage.render(content); break;
             case '/community': renderCommunity(content); break;
             case '/sandbox':   window.SandboxPage.render(content); break;
             case '/config':    renderConfig(content); break;

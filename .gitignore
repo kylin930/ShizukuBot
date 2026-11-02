@@ -81,3 +81,5 @@ data/.admin-initial-password
 data/code-plugins/
 data/plugin-data/
 data/legacy-backups/
+# Versioned per-Bot rule data
+data/rules/

@@ -19,6 +19,7 @@ import (
 	"shizukubot/core"
 	"shizukubot/pluginregistry"
 	"shizukubot/plugins"
+	"shizukubot/rules"
 	"shizukubot/webhook"
 	"shizukubot/webui"
 )
@@ -86,6 +87,7 @@ type Router struct {
 	logManager *core.LogManager
 	templates  *template.Template
 	plugins    *plugins.Manager
+	rules      *rules.Engine
 	configMu   sync.RWMutex
 	botOps     sync.Map
 	pluginOps  sync.Map
@@ -137,6 +139,20 @@ func NewRouterWithRegistry(botManager *core.BotManager, cfg *config.Config, cfgP
 		}
 		return nil
 	})
+	// Core commands keep their first subscription. Rules precede restored plugins.
+	store, err := rules.NewStore("data/rules")
+	if err != nil {
+		_ = manager.Close(context.Background())
+		panic("rule storage initialization failed")
+	}
+	r.rules = rules.NewEngine(store)
+	r.rules.Skip = manager.Skip
+	r.rules.OnError = func(bot, id, category string) { logManager.Error(bot, "rule "+id+": "+category) }
+	if err = r.rules.Attach(botManager.Events()); err != nil {
+		_ = r.rules.Close(context.Background())
+		_ = manager.Close(context.Background())
+		panic("rule event subscription failed")
+	}
 	bots := []string{}
 	for _, bot := range botManager.GetAllBots() {
 		bots = append(bots, bot.ID)
@@ -172,7 +188,7 @@ func (r *Router) registerRoutes() {
 	api.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			parts := strings.Split(strings.Trim(req.URL.Path, "/"), "/")
-			edit := len(parts) >= 3 && parts[0] == "api" && parts[1] == "bots" && (req.Method == "PUT" || req.Method == "DELETE" || (req.Method == "POST" && len(parts) == 4 && (parts[3] == "start" || parts[3] == "stop")))
+			edit := len(parts) >= 3 && parts[0] == "api" && parts[1] == "bots" && ((len(parts) == 3 && (req.Method == "PUT" || req.Method == "DELETE")) || (req.Method == "POST" && len(parts) == 4 && (parts[3] == "start" || parts[3] == "stop")))
 			if edit {
 				v, _ := r.botOps.LoadOrStore(parts[2], &sync.Mutex{})
 				lock := v.(*sync.Mutex)
@@ -192,6 +208,9 @@ func (r *Router) registerRoutes() {
 	api.HandleFunc("/bots/{id}/message/c2c", r.SendC2CMessage).Methods(http.MethodPost)
 	api.HandleFunc("/bots/{id}/start", r.StartBot).Methods(http.MethodPost)
 	api.HandleFunc("/bots/{id}/stop", r.StopBot).Methods(http.MethodPost)
+	api.HandleFunc("/bots/{id}/rules", r.GetRules).Methods(http.MethodGet)
+	api.HandleFunc("/bots/{id}/rules", r.ReplaceRules).Methods(http.MethodPut)
+	api.HandleFunc("/bots/{id}/rules/test", r.TestRules).Methods(http.MethodPost)
 	api.HandleFunc("/stats", r.GetStats).Methods(http.MethodGet)
 	api.HandleFunc("/bots/{id}/stats", r.GetBotStats).Methods(http.MethodGet)
 	api.HandleFunc("/config", r.GetConfig).Methods(http.MethodGet)
