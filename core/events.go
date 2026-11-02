@@ -25,7 +25,7 @@ func (b *Bot) Start() error {
 	// background refresh helper, which logs credentials and can panic on failures.
 	if _, err := source.Token(); err != nil {
 		cancel()
-		b.RecordTransportError("authentication_failed")
+		b.RecordTransportError("token_fetch_failed")
 		return errors.New("bot authentication failed")
 	}
 	b.mu.Lock()

@@ -32,6 +32,9 @@ func Normalize(botID string, raw []byte) (events.Event, error) {
 			MemberOpenID string `json:"member_openid"`
 		} `json:"author"`
 	}
+	if p.Type == "" || len(p.Data) == 0 || string(p.Data) == "null" {
+		return events.Event{}, fmt.Errorf("missing event type or data")
+	}
 	if err := json.Unmarshal(p.Data, &d); err != nil {
 		return events.Event{}, fmt.Errorf("invalid event data: %w", err)
 	}
@@ -50,12 +53,26 @@ func Normalize(botID string, raw []byte) (events.Event, error) {
 	}
 	switch p.Type {
 	case "GROUP_AT_MESSAGE_CREATE":
+		e.GroupID = d.GroupOpenID
+		e.UserID = ""
+		if d.Author != nil {
+			e.UserID = d.Author.MemberOpenID
+		}
 		e.Type = "group_at_message"
 		e.Source = events.Group
 	case "GROUP_MESSAGE_CREATE":
+		e.GroupID = d.GroupOpenID
+		e.UserID = ""
+		if d.Author != nil {
+			e.UserID = d.Author.MemberOpenID
+		}
 		e.Type = "group_message"
 		e.Source = events.Group
 	case "C2C_MESSAGE_CREATE":
+		e.UserID = ""
+		if d.Author != nil {
+			e.UserID = d.Author.UserOpenID
+		}
 		e.Type = "c2c_message"
 		e.Source = events.C2C
 	case "AT_MESSAGE_CREATE":
@@ -69,6 +86,7 @@ func Normalize(botID string, raw []byte) (events.Event, error) {
 		e.Source = events.Direct
 	case "INTERACTION_CREATE":
 		e.Type = "interaction"
+		e.GroupID, e.UserID = "", "" // acknowledged, no reply capability until interaction-specific routing is implemented
 	case "FRIEND_ADD", "FRIEND_DEL", "C2C_FRIEND_ADD", "C2C_FRIEND_DEL":
 		e.Type = "c2c_friend"
 		e.Source = events.C2C
@@ -77,6 +95,7 @@ func Normalize(botID string, raw []byte) (events.Event, error) {
 	case "GROUP_ADD_ROBOT", "GROUP_DEL_ROBOT", "GROUP_MSG_REJECT", "GROUP_MSG_RECEIVE":
 		e.Type = "group_manage"
 		e.Source = events.Group
+		e.GroupID = d.GroupOpenID
 		e.UserID = d.OpMember
 	case "C2C_MSG_REJECT", "C2C_MSG_RECEIVE":
 		e.Type = "c2c_manage"
