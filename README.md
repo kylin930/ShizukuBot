@@ -14,6 +14,16 @@ go build -o shizukubot .
 
 Windows 使用 `go build -o shizukubot.exe .`。从仓库根目录运行，保留 `webui/` 静态文件；WebUI 初始端口 4545。首次管理员密码写入本机 `data/.admin-initial-password`，不输出到日志；登录后请修改密码。QQ 凭证填写在本机配置中。HTTPS 反向代理部署设置 `webui.secure_cookies: true`，保留正确 Host；安全状态不直接取自代理协议头。
 
+## 统计与 WebUI 外观
+
+收发计数、用户/群去重、DAU、小时和每日历史保存在 `data/stats.db`，跨重启恢复。
+默认保留最近 90 天，每天 Asia/Shanghai 03:00 清理；可在配置页修改保留期和清理时间，立即应用。
+SQLite 驱动无需 CGO，Linux/Windows 均只需 Go 工具链。备份需同时保存数据库和 `data/.stats-hmac-key`。
+
+配置页支持默认背景、图片 URL、本地图片上传，以及 MDUI 动态主色和浅色/深色/跟随系统。
+预览可取消，保存后服务器持久化，登录页与管理后台共享外观。
+[WebUI 使用与配置说明](docs/webui-guide.md) · [统计存储与口径](docs/statistics-storage.md) · [P2.5 交付报告](docs/v2-p25-stats-appearance-report.md)
+
 ## QQ 官方接入与联调
 
 QQ SDK 统一维护于 [botgo-plus](https://github.com/kylin930/botgo-plus)，通过 Go Modules
@@ -25,7 +35,7 @@ QQ SDK 统一维护于 [botgo-plus](https://github.com/kylin930/botgo-plus)，�
 分配 `msg_seq`（当前官网：C2C 最多 4 次、群聊 5 次；失败/超时也计入尝试）。
 主动管理 API 不复用入站消息 ID，平台权限/限频错误会明确返回。
 
-Bot 管理页可展开 QQ 联调诊断；没有事件/回复证据时显示“尚未验证”。
+Bot 管理页可展开 QQ 联调诊断；没有事件/回复证据时显示“暂无记录”或“未检测”。
 先用 `go run ./cmd/qq-diagnose --bot 你的BotID` 离线检查，再按
 [真实测试机器人接入指南](docs/qq-integration-guide.md) 配置 HTTPS、测试成员和权限。
 **本次没有真实 QQ 凭证，真实 Token/官方回调/客户端收信尚未验证。**

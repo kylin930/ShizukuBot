@@ -1,0 +1,450 @@
+{
+  "systemChartColors": true,
+  "restart": true,
+  "previewRollback": true,
+  "sharedLogin": true,
+  "historyPoints": 7,
+  "layout": [
+    {
+      "route": "stats",
+      "width": 1440,
+      "scroll": 1440,
+      "padding": "32px",
+      "contentScroll": 1440,
+      "contentWidth": 1440,
+      "viewScroll": 1359,
+      "viewWidth": 1359
+    },
+    {
+      "route": "bots",
+      "width": 1440,
+      "scroll": 1440,
+      "padding": "32px",
+      "contentScroll": 1440,
+      "contentWidth": 1440,
+      "viewScroll": 1359,
+      "viewWidth": 1359
+    },
+    {
+      "route": "logs",
+      "width": 1440,
+      "scroll": 1440,
+      "padding": "32px",
+      "contentScroll": 1440,
+      "contentWidth": 1440,
+      "viewScroll": 1359,
+      "viewWidth": 1359
+    },
+    {
+      "route": "api-test",
+      "width": 1440,
+      "scroll": 1440,
+      "padding": "32px",
+      "contentScroll": 1440,
+      "contentWidth": 1440,
+      "viewScroll": 1359,
+      "viewWidth": 1359
+    },
+    {
+      "route": "plugins",
+      "width": 1440,
+      "scroll": 1440,
+      "padding": "32px",
+      "contentScroll": 1440,
+      "contentWidth": 1440,
+      "viewScroll": 1359,
+      "viewWidth": 1359
+    },
+    {
+      "route": "rules",
+      "width": 1440,
+      "scroll": 1440,
+      "padding": "32px",
+      "contentScroll": 1440,
+      "contentWidth": 1440,
+      "viewScroll": 1359,
+      "viewWidth": 1359
+    },
+    {
+      "route": "community",
+      "width": 1440,
+      "scroll": 1440,
+      "padding": "32px",
+      "contentScroll": 1440,
+      "contentWidth": 1440,
+      "viewScroll": 1359,
+      "viewWidth": 1359
+    },
+    {
+      "route": "sandbox",
+      "width": 1440,
+      "scroll": 1440,
+      "padding": "32px",
+      "contentScroll": 1440,
+      "contentWidth": 1440,
+      "viewScroll": 1359,
+      "viewWidth": 1359
+    },
+    {
+      "route": "config",
+      "width": 1440,
+      "scroll": 1440,
+      "padding": "32px",
+      "contentScroll": 1440,
+      "contentWidth": 1440,
+      "viewScroll": 1359,
+      "viewWidth": 1359
+    },
+    {
+      "route": "users",
+      "width": 1440,
+      "scroll": 1440,
+      "padding": "32px",
+      "contentScroll": 1440,
+      "contentWidth": 1440,
+      "viewScroll": 1359,
+      "viewWidth": 1359
+    },
+    {
+      "route": "about",
+      "width": 1440,
+      "scroll": 1440,
+      "padding": "32px",
+      "contentScroll": 1440,
+      "contentWidth": 1440,
+      "viewScroll": 1359,
+      "viewWidth": 1359
+    },
+    {
+      "route": "stats",
+      "width": 1024,
+      "scroll": 1024,
+      "padding": "24px",
+      "contentScroll": 1024,
+      "contentWidth": 1024,
+      "viewScroll": 943,
+      "viewWidth": 943
+    },
+    {
+      "route": "bots",
+      "width": 1024,
+      "scroll": 1024,
+      "padding": "24px",
+      "contentScroll": 1024,
+      "contentWidth": 1024,
+      "viewScroll": 943,
+      "viewWidth": 943
+    },
+    {
+      "route": "logs",
+      "width": 1024,
+      "scroll": 1024,
+      "padding": "24px",
+      "contentScroll": 1024,
+      "contentWidth": 1024,
+      "viewScroll": 943,
+      "viewWidth": 943
+    },
+    {
+      "route": "api-test",
+      "width": 1024,
+      "scroll": 1024,
+      "padding": "24px",
+      "contentScroll": 1024,
+      "contentWidth": 1024,
+      "viewScroll": 943,
+      "viewWidth": 943
+    },
+    {
+      "route": "plugins",
+      "width": 1024,
+      "scroll": 1024,
+      "padding": "24px",
+      "contentScroll": 1024,
+      "contentWidth": 1024,
+      "viewScroll": 943,
+      "viewWidth": 943
+    },
+    {
+      "route": "rules",
+      "width": 1024,
+      "scroll": 1024,
+      "padding": "24px",
+      "contentScroll": 1024,
+      "contentWidth": 1024,
+      "viewScroll": 943,
+      "viewWidth": 943
+    },
+    {
+      "route": "community",
+      "width": 1024,
+      "scroll": 1024,
+      "padding": "24px",
+      "contentScroll": 1024,
+      "contentWidth": 1024,
+      "viewScroll": 943,
+      "viewWidth": 943
+    },
+    {
+      "route": "sandbox",
+      "width": 1024,
+      "scroll": 1024,
+      "padding": "24px",
+      "contentScroll": 1024,
+      "contentWidth": 1024,
+      "viewScroll": 943,
+      "viewWidth": 943
+    },
+    {
+      "route": "config",
+      "width": 1024,
+      "scroll": 1024,
+      "padding": "24px",
+      "contentScroll": 1024,
+      "contentWidth": 1024,
+      "viewScroll": 943,
+      "viewWidth": 943
+    },
+    {
+      "route": "users",
+      "width": 1024,
+      "scroll": 1024,
+      "padding": "24px",
+      "contentScroll": 1024,
+      "contentWidth": 1024,
+      "viewScroll": 943,
+      "viewWidth": 943
+    },
+    {
+      "route": "about",
+      "width": 1024,
+      "scroll": 1024,
+      "padding": "24px",
+      "contentScroll": 1024,
+      "contentWidth": 1024,
+      "viewScroll": 943,
+      "viewWidth": 943
+    },
+    {
+      "route": "stats",
+      "width": 390,
+      "scroll": 390,
+      "padding": "16px",
+      "contentScroll": 390,
+      "contentWidth": 390,
+      "viewScroll": 390,
+      "viewWidth": 390
+    },
+    {
+      "route": "bots",
+      "width": 390,
+      "scroll": 390,
+      "padding": "16px",
+      "contentScroll": 390,
+      "contentWidth": 390,
+      "viewScroll": 390,
+      "viewWidth": 390
+    },
+    {
+      "route": "logs",
+      "width": 390,
+      "scroll": 390,
+      "padding": "16px",
+      "contentScroll": 390,
+      "contentWidth": 390,
+      "viewScroll": 390,
+      "viewWidth": 390
+    },
+    {
+      "route": "api-test",
+      "width": 390,
+      "scroll": 390,
+      "padding": "16px",
+      "contentScroll": 390,
+      "contentWidth": 390,
+      "viewScroll": 390,
+      "viewWidth": 390
+    },
+    {
+      "route": "plugins",
+      "width": 390,
+      "scroll": 390,
+      "padding": "16px",
+      "contentScroll": 390,
+      "contentWidth": 390,
+      "viewScroll": 390,
+      "viewWidth": 390
+    },
+    {
+      "route": "rules",
+      "width": 390,
+      "scroll": 390,
+      "padding": "16px",
+      "contentScroll": 390,
+      "contentWidth": 390,
+      "viewScroll": 390,
+      "viewWidth": 390
+    },
+    {
+      "route": "community",
+      "width": 390,
+      "scroll": 390,
+      "padding": "16px",
+      "contentScroll": 390,
+      "contentWidth": 390,
+      "viewScroll": 390,
+      "viewWidth": 390
+    },
+    {
+      "route": "sandbox",
+      "width": 390,
+      "scroll": 390,
+      "padding": "16px",
+      "contentScroll": 390,
+      "contentWidth": 390,
+      "viewScroll": 390,
+      "viewWidth": 390
+    },
+    {
+      "route": "config",
+      "width": 390,
+      "scroll": 390,
+      "padding": "16px",
+      "contentScroll": 390,
+      "contentWidth": 390,
+      "viewScroll": 390,
+      "viewWidth": 390
+    },
+    {
+      "route": "users",
+      "width": 390,
+      "scroll": 390,
+      "padding": "16px",
+      "contentScroll": 390,
+      "contentWidth": 390,
+      "viewScroll": 390,
+      "viewWidth": 390
+    },
+    {
+      "route": "about",
+      "width": 390,
+      "scroll": 390,
+      "padding": "16px",
+      "contentScroll": 390,
+      "contentWidth": 390,
+      "viewScroll": 390,
+      "viewWidth": 390
+    },
+    {
+      "route": "stats",
+      "width": 360,
+      "scroll": 360,
+      "padding": "16px",
+      "contentScroll": 360,
+      "contentWidth": 360,
+      "viewScroll": 360,
+      "viewWidth": 360
+    },
+    {
+      "route": "bots",
+      "width": 360,
+      "scroll": 360,
+      "padding": "16px",
+      "contentScroll": 360,
+      "contentWidth": 360,
+      "viewScroll": 360,
+      "viewWidth": 360
+    },
+    {
+      "route": "logs",
+      "width": 360,
+      "scroll": 360,
+      "padding": "16px",
+      "contentScroll": 360,
+      "contentWidth": 360,
+      "viewScroll": 360,
+      "viewWidth": 360
+    },
+    {
+      "route": "api-test",
+      "width": 360,
+      "scroll": 360,
+      "padding": "16px",
+      "contentScroll": 360,
+      "contentWidth": 360,
+      "viewScroll": 360,
+      "viewWidth": 360
+    },
+    {
+      "route": "plugins",
+      "width": 360,
+      "scroll": 360,
+      "padding": "16px",
+      "contentScroll": 360,
+      "contentWidth": 360,
+      "viewScroll": 360,
+      "viewWidth": 360
+    },
+    {
+      "route": "rules",
+      "width": 360,
+      "scroll": 360,
+      "padding": "16px",
+      "contentScroll": 360,
+      "contentWidth": 360,
+      "viewScroll": 360,
+      "viewWidth": 360
+    },
+    {
+      "route": "community",
+      "width": 360,
+      "scroll": 360,
+      "padding": "16px",
+      "contentScroll": 360,
+      "contentWidth": 360,
+      "viewScroll": 360,
+      "viewWidth": 360
+    },
+    {
+      "route": "sandbox",
+      "width": 360,
+      "scroll": 360,
+      "padding": "16px",
+      "contentScroll": 360,
+      "contentWidth": 360,
+      "viewScroll": 360,
+      "viewWidth": 360
+    },
+    {
+      "route": "config",
+      "width": 360,
+      "scroll": 360,
+      "padding": "16px",
+      "contentScroll": 360,
+      "contentWidth": 360,
+      "viewScroll": 360,
+      "viewWidth": 360
+    },
+    {
+      "route": "users",
+      "width": 360,
+      "scroll": 360,
+      "padding": "16px",
+      "contentScroll": 360,
+      "contentWidth": 360,
+      "viewScroll": 360,
+      "viewWidth": 360
+    },
+    {
+      "route": "about",
+      "width": 360,
+      "scroll": 360,
+      "padding": "16px",
+      "contentScroll": 360,
+      "contentWidth": 360,
+      "viewScroll": 360,
+      "viewWidth": 360
+    }
+  ],
+  "browserErrors": []
+}
