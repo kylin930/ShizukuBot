@@ -7,6 +7,7 @@ let logWebSocket = null;
 let historyChart = null;
 let hourlyChart = null;
 let historyPage = 1;
+let statsQueryEpoch = 0;
 const historyPageSize = 50;
 
 // API 接口列表
@@ -260,13 +261,16 @@ async function loadBotsList() {
 }
 
 async function updateStats() {
+    const epoch=pageEpoch, query=++statsQueryEpoch;
     try {
-        const epoch=pageEpoch;
         const days=document.getElementById('history-range')?.value||'30';
         const [data,history]=await Promise.all([apiGet('/api/stats'),apiGet('/api/stats/history?days='+encodeURIComponent(days))]);
-        if(epoch!==pageEpoch)return;
+        if(epoch!==pageEpoch || query!==statsQueryEpoch)return;
         if (data.code === 0 && data.data) {
             const s = data.data;
+            const range=document.getElementById('history-range');
+            for(const item of range.querySelectorAll('mdui-menu-item'))item.disabled=Boolean(s.retention_days&&Number(item.value)>s.retention_days);
+            if(s.retention_days&&Number(range.value)>s.retention_days)range.value=String([90,30,7].find(value=>value<=s.retention_days));
             document.getElementById('stats-window').textContent=(s.retention_days ? `最近 ${s.retention_days} 天`:'永久保留')+' · '+(s.timezone||'本地时区')+' · 各机器人分别去重后求和';
             AdminUI.notice(document.getElementById('stats-feedback'),'');
             if(historyChart){const points=history.data||[];historyChart.data.labels=points.map(p=>p.date);historyChart.data.datasets[0].data=points.map(p=>p.sent);historyChart.data.datasets[1].data=points.map(p=>p.received);historyChart.update('none');}
@@ -287,6 +291,7 @@ async function updateStats() {
         }
     } catch (e) {
         if (e.name === 'AbortError') return;
+        if(epoch!==pageEpoch || query!==statsQueryEpoch)return;
         const host=document.getElementById('stats-feedback');if(host)AdminUI.notice(host,'统计加载失败：'+e.message,'error');
     }
 }

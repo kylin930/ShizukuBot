@@ -251,11 +251,17 @@ func TestAtomicRollbackAndDailyScheduleUpdate(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	s.Record(Event{Bot: "a", Kind: "received"})
-	s.Record(Event{Bot: "a", Kind: "user", Identity: "u"})
-	if e = s.Flush(context.Background()); e == nil {
+	// Pin both SQL statements to one batch. Public Record calls may legitimately
+	// straddle two transactions when the asynchronous worker is scheduled between them.
+	if e = s.call(context.Background(), func() error {
+		day := now().In(s.loc).Format("2006-01-02")
+		s.pending = []record{{bot: "a", kind: "received", day: day, hour: 3}, {bot: "a", kind: "user", day: day, digest: "test-transaction-digest"}}
+		s.pendingCount.Store(2)
+		return s.flush()
+	}); e == nil {
 		t.Fatal("transaction failure missing")
 	}
+
 	var total int
 	s.db.QueryRow("SELECT COUNT(*) FROM hourly").Scan(&total)
 	if total != 0 {
