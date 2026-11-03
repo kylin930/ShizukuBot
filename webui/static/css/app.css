@@ -815,3 +815,31 @@ mdui-button:focus-visible, mdui-button-icon:focus-visible, summary:focus-visible
 .field-error:empty { display:none; }
 
 .page-view { min-width:0; }
+
+/* One shared outer gutter for every route. */
+.page-content {padding:0;}
+.page-view {padding:20px 32px;box-sizing:border-box;}
+.plugin-page-surface {padding:0;}
+@media (min-width:840px) and (max-width:1199px) {.page-view {padding:20px 24px;}}
+@media (max-width:839px) {.page-view {padding:16px;}.plugin-page-surface {padding:0;}}
+.preferences-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:16px;margin-block:16px;align-items:start;}
+.preferences-grid > * {min-width:0;width:100%;}
+.preferences-grid input[type=file] {max-width:100%;}
+.config-card h2 {margin:0 0 16px;font-size:18px;}
+.appearance-preview {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin-block:16px;}
+.appearance-image-preview {width:100%;height:180px;object-fit:cover;border-radius:12px;}
+.appearance-sample {padding:16px;}
+.appearance-sample h3 {margin-top:0;}
+.about-info {display:grid;grid-template-columns:max-content minmax(0,1fr);gap:10px 24px;text-align:left;}
+.about-info dd {margin:0;overflow-wrap:anywhere;}
+.about-links {display:flex;flex-wrap:wrap;gap:8px;margin-block:20px;}
+.about-description {line-height:1.7;text-align:left;}
+@media(max-width:600px){.appearance-preview{grid-template-columns:minmax(0,1fr);}.about-info{grid-template-columns:minmax(0,1fr);gap:6px;}}
+.chart-heading {display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;font-weight:500;}
+.chart-heading mdui-select {width:150px;min-width:0;}
+.about-card h2 {font-size:18px;text-align:left;margin-top:24px;}
+.about-logo mdui-icon {font-size:48px;color:rgb(var(--mdui-color-primary));}
+#stats-window {margin-top:-12px;margin-bottom:20px;line-height:1.6;}
+.chart-container {min-width:0;}
+.chart-container canvas {max-width:100%;}
+@media(max-width:839px){.bots-card {display:block;max-width:100%;box-sizing:border-box;}.bot-item {gap:12px;}}

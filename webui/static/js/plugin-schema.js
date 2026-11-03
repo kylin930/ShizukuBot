@@ -120,10 +120,10 @@
                 if (this.mode === 'json') {
                     const value = JSON.parse(this.raw);
                     if (!object(value)) throw Error('配置根节点必须为对象');
-                    if (!formSupport(this.schema, value)) throw Error('此配置暂不支持表单，请使用 JSON 编辑；内容已保留。');
+                    if (!formSupport(this.schema, value)) throw Error('此配置暂不支持表单，请使用 JSON 编辑；内容已保留');
                     this.value = U.clone(value);
                 } else {
-                    if (this.invalid.size) throw Error('请先修正无效数值，再切换模式。');
+                    if (this.invalid.size) throw Error('请先修正无效数值，再切换模式');
                     this.raw = JSON.stringify(this.value, null, 2);
                 }
                 this.mode = mode; this.render();
@@ -134,11 +134,11 @@
             this.formButton.variant = this.mode === 'form' ? 'filled' : 'outlined';
             this.jsonButton.variant = this.mode === 'json' ? 'filled' : 'outlined';
             if (this.mode === 'json') {
-                if (!formSupport(this.schema, this.value)) U.notice(this.feedback, '此配置使用 JSON 编辑。');
+                if (!formSupport(this.schema, this.value)) U.notice(this.feedback, '此配置使用 JSON 编辑');
                 const input = U.el('textarea', {class: 'plugin-json', value: this.raw, 'aria-label': '插件配置 JSON', spellcheck: false});
                 input.addEventListener('input', () => {this.raw = input.value;}); this.body.append(input); return;
             }
-            if (!Object.keys(this.schema.properties || {}).length) {this.body.append(U.text('p', '此插件无需配置。')); return;}
+            if (!Object.keys(this.schema.properties || {}).length) {this.body.append(U.text('p', '此插件无需配置')); return;}
             this.renderObject(this.schema, [], this.body);
         }
         renderObject(schema, path, host) {
@@ -154,7 +154,7 @@
             if (!required) {
                 const enabled = U.el('mdui-checkbox', {checked: current !== undefined, text: '设置此字段', 'aria-label': '设置字段 ' + label});
                 enabled.addEventListener('change', async () => {
-                    if (this.invalid.size) {enabled.checked = current !== undefined; U.notice(this.feedback, '请先修正无效数值再修改字段。', 'error'); return;}
+                    if (this.invalid.size) {enabled.checked = current !== undefined; U.notice(this.feedback, '请先修正无效数值再修改字段', 'error'); return;}
                     this.set(path, enabled.checked ? defaultValue(schema) : undefined);
                     // MDUI performs checked/validity work after its update promise.
                     // Preserve the draft immediately, then detach only after that work.
@@ -179,9 +179,9 @@
                 array.forEach((item, index) => {
                     const row = U.el('div', {class: 'schema-array-item'});
                     this.renderField(schema.items, [...path, index], '项目 ' + (index + 1), true, row);
-                    row.append(U.button('移除项目', () => {if (this.invalid.size) {U.notice(this.feedback, '请先修正无效数值再移除项目。', 'error'); return;} const next = U.clone(this.get(path)); next.splice(index, 1); this.set(path, next); this.render();})); section.append(row);
+                    row.append(U.button('移除项目', () => {if (this.invalid.size) {U.notice(this.feedback, '请先修正无效数值再移除项目', 'error'); return;} const next = U.clone(this.get(path)); next.splice(index, 1); this.set(path, next); this.render();})); section.append(row);
                 });
-                const add = U.button('添加项目', () => {if (this.invalid.size) {U.notice(this.feedback, '请先修正无效数值再添加项目。', 'error'); return;} this.set(path, [...(this.get(path) || []), defaultValue(schema.items)]); this.render();});
+                const add = U.button('添加项目', () => {if (this.invalid.size) {U.notice(this.feedback, '请先修正无效数值再添加项目', 'error'); return;} this.set(path, [...(this.get(path) || []), defaultValue(schema.items)]); this.render();});
                 add.disabled = array.length >= 100; section.append(add); return;
             }
             if (type === 'boolean') {

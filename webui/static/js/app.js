@@ -123,6 +123,8 @@ async function renderStats(container) {
     const epoch = pageEpoch;
     container.innerHTML = `
         <div class="page-title">统计</div>
+        <p id="stats-window" class="plugin-muted"></p>
+        <div id="stats-feedback" aria-live="polite"></div>
 
         <!-- 机器人管理 -->
         <mdui-card variant="outlined" class="bots-card">
@@ -162,7 +164,9 @@ async function renderStats(container) {
         <!-- 图表 -->
         <div class="charts-grid">
             <mdui-card variant="outlined" class="chart-card">
-                <div style="font-size: 16px; font-weight: 500; margin-bottom: 12px">历史消息数量</div>
+                <div class="chart-heading"><span>历史消息数量</span><mdui-select id="history-range" value="30" aria-label="历史范围">
+                    <mdui-menu-item value="7">最近 7 天</mdui-menu-item><mdui-menu-item value="30">最近 30 天</mdui-menu-item><mdui-menu-item value="90">最近 90 天</mdui-menu-item>
+                </mdui-select></div>
                 <div class="chart-container"><canvas id="history-chart"></canvas></div>
             </mdui-card>
             <mdui-card variant="outlined" class="chart-card">
@@ -174,10 +178,13 @@ async function renderStats(container) {
 
     await loadBotsList();
     if (epoch !== pageEpoch) return;
-    await updateStats();
-    if (epoch !== pageEpoch) return;
     initHistoryChart();
     initHourlyChart();
+    pageScope.on(document.getElementById('history-range'),'change',updateStats);
+    pageScope.on(matchMedia('(prefers-color-scheme: dark)'),'change',recolorCharts);
+    pageScope.on(window,'appearancechange',recolorCharts);
+    await updateStats();
+    if (epoch !== pageEpoch) return;
     statsRefreshTimer = setInterval(() => {
         updateStats();
         if (!document.querySelector('#bots-list mdui-button[loading]')) loadBotsList();
@@ -254,9 +261,15 @@ async function loadBotsList() {
 
 async function updateStats() {
     try {
-        const data = await apiGet('/api/stats');
+        const epoch=pageEpoch;
+        const days=document.getElementById('history-range')?.value||'30';
+        const [data,history]=await Promise.all([apiGet('/api/stats'),apiGet('/api/stats/history?days='+encodeURIComponent(days))]);
+        if(epoch!==pageEpoch)return;
         if (data.code === 0 && data.data) {
             const s = data.data;
+            document.getElementById('stats-window').textContent=(s.retention_days ? `最近 ${s.retention_days} 天`:'永久保留')+' · '+(s.timezone||'本地时区')+' · 各机器人分别去重后求和';
+            AdminUI.notice(document.getElementById('stats-feedback'),'');
+            if(historyChart){const points=history.data||[];historyChart.data.labels=points.map(p=>p.date);historyChart.data.datasets[0].data=points.map(p=>p.sent);historyChart.data.datasets[1].data=points.map(p=>p.received);historyChart.update('none');}
             document.getElementById('stat-users').textContent = s.user_count || 0;
             document.getElementById('stat-groups').textContent = s.group_count || 0;
             document.getElementById('stat-dau').textContent = s.today_dau || 0;
@@ -274,10 +287,23 @@ async function updateStats() {
         }
     } catch (e) {
         if (e.name === 'AbortError') return;
-        console.error('更新统计失败:', e);
+        const host=document.getElementById('stats-feedback');if(host)AdminUI.notice(host,'统计加载失败：'+e.message,'error');
     }
 }
 
+function chartPalette(){const style=getComputedStyle(document.documentElement);const color=name=>'rgb('+style.getPropertyValue('--mdui-color-'+name).trim()+')';return {sent:color('primary'),received:color('tertiary'),text:color('on-surface-variant'),grid:color('outline-variant')};}
+function chartOptions(){const palette=chartPalette();return {responsive:true,maintainAspectRatio:false,
+    animation:matchMedia('(prefers-reduced-motion: reduce)').matches?false:{duration:250},
+    plugins:{legend:{labels:{color:palette.text}}},scales:{x:{ticks:{color:palette.text},grid:{color:palette.grid}},y:{beginAtZero:true,ticks:{color:palette.text,precision:0},grid:{color:palette.grid}}}};}
+function recolorCharts(){
+    const palette=chartPalette();
+    for(const chart of [historyChart,hourlyChart]){if(!chart)continue;
+        chart.data.datasets.forEach((dataset,index)=>{dataset.borderColor=index?palette.received:palette.sent;dataset.backgroundColor=index?palette.received:palette.sent;});
+        chart.options.plugins.legend.labels.color=palette.text;
+        for(const axis of Object.values(chart.options.scales)){axis.ticks.color=palette.text;axis.grid.color=palette.grid;}
+        chart.update('none');
+    }
+}
 function initHistoryChart() {
     const ctx = document.getElementById('history-chart');
     if (!ctx) return;
@@ -286,11 +312,11 @@ function initHistoryChart() {
         data: {
             labels: [],
             datasets: [
-                { label: '发送', data: [], borderColor: 'rgb(25, 118, 210)', tension: 0.3, fill: false },
-                { label: '接收', data: [], borderColor: 'rgb(245, 124, 0)', tension: 0.3, fill: false },
+                { label: '发送', data: [], borderColor: chartPalette().sent, tension: 0.3, fill: false },
+                { label: '接收', data: [], borderColor: chartPalette().received, tension: 0.3, fill: false },
             ],
         },
-        options: { responsive: true, maintainAspectRatio: false, animation: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? false : {duration: 250} },
+        options: chartOptions(),
     });
 }
 
@@ -302,11 +328,11 @@ function initHourlyChart() {
         data: {
             labels: Array.from({ length: 24 }, (_, i) => i + ':00'),
             datasets: [
-                { label: '发送', data: Array(24).fill(0), backgroundColor: 'rgba(25, 118, 210, 0.6)' },
-                { label: '接收', data: Array(24).fill(0), backgroundColor: 'rgba(245, 124, 0, 0.6)' },
+                { label: '发送', data: Array(24).fill(0), backgroundColor: chartPalette().sent },
+                { label: '接收', data: Array(24).fill(0), backgroundColor: chartPalette().received },
             ],
         },
-        options: { responsive: true, maintainAspectRatio: false, animation: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? false : {duration: 250} },
+        options: chartOptions(),
     });
 }
 
@@ -547,6 +573,7 @@ async function renderConfig(container) {
     const epoch = pageEpoch;
     container.innerHTML = `
         <div class="page-title">配置</div>
+        <div id="preferences-settings"></div>
 
         <div id="config-feedback" aria-live="polite"></div>
         <!-- WebUI 配置 -->
@@ -588,7 +615,9 @@ async function renderConfig(container) {
         <!-- 原始配置 -->
         <mdui-card variant="outlined" class="config-card">
             <div style="font-size:16px;font-weight:500;margin-bottom:16px">config.json (原始)</div>
-            <textarea class="config-textarea" id="config-textarea" spellcheck="false"></textarea>
+            <textarea class="config-textarea" id="config-textarea" spellcheck="false" aria-label="原始全局配置"></textarea>
+            <p class="plugin-muted">原始配置可保存全局设置，机器人请在机器人页编辑</p>
+            <mdui-button id="config-save-raw" variant="outlined">保存原始配置</mdui-button>
         </mdui-card>
 
         <div class="config-actions">
@@ -602,17 +631,22 @@ async function renderConfig(container) {
 
     document.getElementById('add-bot-btn').addEventListener('click', addBotConfig);
     document.getElementById('config-save').addEventListener('click', saveConfig);
+    document.getElementById('config-save-raw').addEventListener('click',()=>saveConfig(true));
+    pageScope.cleanup=()=>configPreferences?.dispose();
     pageScope.dirty = () => Boolean(configBaseline && configDraft() !== configBaseline);
     document.getElementById('config-reload').addEventListener('click', async () => {if (await AdminUI.mayLeave()) loadConfig();});
 }
 
 let configData = null;
 let configBaseline = '';
+let configPreferences = null;
+let rawConfigBaseline = '';
 function renderConfigPreview() {
     const safe = JSON.parse(JSON.stringify(configData));
     if (safe.webui) safe.webui.password = '';
     for (const bot of safe.bots || []) bot.app_secret = '';
     document.getElementById('config-textarea').value = JSON.stringify(safe, null, 2);
+    rawConfigBaseline=document.getElementById('config-textarea').value;
 }
 function configDraft() {
     const root = currentRoute === '/config' ? pageScope?.container : null;
@@ -650,6 +684,9 @@ async function loadConfig() {
             // 渲染机器人配置列表
             renderBotsConfigList();
 
+            // Settings preview belongs to this configuration page scope.
+            configPreferences?.dispose();
+            configPreferences=Preferences.mount(document.getElementById('preferences-settings'),configData,pageScope);
             // 填充原始 JSON
             renderConfigPreview();
             configBaseline = configDraft();
@@ -718,19 +755,30 @@ function addBotConfig() {
     renderBotsConfigList();
 }
 
-async function saveConfig() {
+async function saveConfig(raw = false) {
+    raw = raw === true;
     const scope = pageScope;
     if (!configData || scope.busy) return;
     const root = scope.container;
     const port = document.getElementById('webui-port');
     const portError = document.getElementById('config-port-error');
     const value = Number(port.value);
-    port.error = !Number.isInteger(value) || value < 1 || value > 65535;
+    port.error = !raw && (!Number.isInteger(value) || value < 1 || value > 65535);
     portError.textContent = port.error ? '端口须为 1–65535 的整数' : '';
     if (port.error) {port.focus();return;}
     scope.busy = true;
     AdminUI.controlsBusy(root, true);
     try {
+        if(raw){
+            const parsed=JSON.parse(document.getElementById('config-textarea').value);
+            parsed.revision=configData.revision;
+            const result=await apiPut('/api/config',parsed);
+            configData=result.data;configPreferences.commit(configData.webui.appearance);await loadConfig();showSnackbar('已保存');return;
+        }
+        if(document.getElementById('config-textarea').value!==rawConfigBaseline)throw Error('原始 JSON 有修改，请保存原始配置或重新加载');
+        const settings=configPreferences.read();
+        configData.statistics=settings.statistics;
+        configData.webui.appearance=settings.appearance;
         // 更新 configData
         configData.webui = {
             ...configData.webui,
@@ -775,6 +823,7 @@ async function saveConfig() {
         // 保存到服务器
         const data = await apiPut('/api/config', configData);
         if (data.code === 0) {
+            configData=data.data;configPreferences.commit(configData.webui.appearance);
             configBaseline = configDraft();
             document.getElementById('webui-password').value = '';
             document.querySelectorAll('.bot-config-appsecret').forEach(node => {node.value = '';});
@@ -950,7 +999,7 @@ async function deleteUser(username) {
     try {
         await mdui.confirm({closeOnEsc: true,
             headline: '删除用户',
-            description: '确定要删除用户：' + username + ' 吗？此操作不可恢复。',
+            description: '确定要删除用户：' + username + ' 吗？此操作不可恢复',
             confirmText: '删除',
             cancelText: '取消'
         });
@@ -972,57 +1021,31 @@ async function deleteUser(username) {
     }
 }
 
-function renderAbout(container) {
-    container.innerHTML = `
-        <div class="page-title">关于</div>
-        <div class="about-container">
-            <mdui-card variant="outlined" class="about-card">
-                <div class="about-logo">
-                    <mdui-icon name="smart_toy" style="font-size:48px;color:rgb(var(--mdui-color-primary))"></mdui-icon>
-                </div>
-                <div class="about-title">ShizukuBot</div>
-                <div class="about-subtitle">QQ 机器人管理后台</div>
-                <mdui-divider></mdui-divider>
-                <div style="text-align:left;margin-top:24px">
-                    <div class="tech-stack-title">技术栈</div>
-                    <div class="tech-grid">
-                        <div class="tech-item">
-                            <mdui-icon name="terminal"></mdui-icon>
-                            <span>Go</span>
-                        </div>
-                        <div class="tech-item">
-                            <mdui-icon name="widgets"></mdui-icon>
-                            <span>MDUI2</span>
-                        </div>
-                        <div class="tech-item">
-                            <mdui-icon name="show_chart"></mdui-icon>
-                            <span>Chart.js</span>
-                        </div>
-                        <div class="tech-item">
-                            <mdui-icon name="http"></mdui-icon>
-                            <span>gorilla/mux</span>
-                        </div>
-                        <div class="tech-item">
-                            <mdui-icon name="smart_toy"></mdui-icon>
-                            <span>botgo-plus</span>
-                        </div>
-                        <div class="tech-item">
-                            <mdui-icon name="webhook"></mdui-icon>
-                            <span>Webhook</span>
-                        </div>
-                        <div class="tech-item">
-                            <mdui-icon name="data_object"></mdui-icon>
-                            <span>JSON Config</span>
-                        </div>
-                        <div class="tech-item">
-                            <mdui-icon name="devices"></mdui-icon>
-                            <span>Web Components</span>
-                        </div>
-                    </div>
-                </div>
-            </mdui-card>
-        </div>
-    `;
+async function renderAbout(container) {
+    const scope=pageScope;
+    const U=AdminUI;
+    const info=U.el('dl',{class:'about-info',id:'about-runtime'});
+    const links=U.el('div',{class:'about-links'});
+    for(const [label,url] of [
+        ['GitHub','https://github.com/kylin930/ShizukuBot'],
+        ['botgo-plus','https://github.com/kylin930/botgo-plus'],
+        ['使用文档','https://github.com/kylin930/ShizukuBot/blob/main/README.md'],
+        ['插件开发','https://github.com/kylin930/ShizukuBot/blob/main/docs/plugin-development.md'],
+        ['Issues','https://github.com/kylin930/ShizukuBot/issues'],
+        ['License','https://github.com/kylin930/ShizukuBot/blob/main/LICENSE']]){
+        links.append(U.el('mdui-button',{variant:'text',href:url,target:'_blank',rel:'noopener noreferrer',text:label}));
+    }
+    const card=U.el('mdui-card',{variant:'outlined',class:'about-card'},[
+        U.el('div',{class:'about-logo'},[U.el('mdui-icon',{name:'smart_toy'})]),
+        U.text('h1','ShizukuBot','about-title'),
+        U.text('p','基于 Go 的 QQ 官方机器人框架，提供多 Bot 管理、Go 插件、规则和 WebUI','about-description'),
+        U.text('h2','版本与运行信息'),info,links,
+        U.text('h2','技术栈'),U.text('p','Go · botgo-plus · MDUI 2 · SQLite · Chart.js'),
+        U.text('h2','开源与许可'),U.text('p','ShizukuBot 使用 Apache License 2.0。感谢上述开源项目及其贡献者。','about-description')]);
+    container.replaceChildren(U.text('div','关于','page-title'),U.el('div',{class:'about-container'},[card]));
+    try {const result=await scope.request('/api/system');if(!scope.current())return;
+        for(const [label,value] of [['Core',result.core_version],['WebUI',result.webui_version],['Go',result.go_version],['系统',result.platform],['运行时间',result.uptime],['SDK',result.sdk+' '+result.sdk_version]])info.append(U.text('dt',label),U.text('dd',value));
+    }catch(error){if(scope.current())info.append(U.text('dd','运行信息加载失败'));}
 }
 
 // ==================== 机器人管理页 ====================
@@ -1103,7 +1126,7 @@ async function loadBotsManageList(container) {
                         try {
                             await mdui.confirm({closeOnEsc: true,
                                 headline: '删除机器人',
-                                description: '确定删除机器人：' + id + ' 吗？此操作不可恢复。',
+                                description: '确定删除机器人：' + id + ' 吗？此操作不可恢复',
                                 confirmText: '删除',
                                 cancelText: '取消'
                             });
