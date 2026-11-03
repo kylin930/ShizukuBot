@@ -92,3 +92,10 @@ config/*.local.json
 config/*credentials*.json
 *token-cache*.json
 qq-integration-artifacts/
+
+# Persistent statistics, private deduplication key and uploaded backgrounds
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/.stats-hmac-key
+data/appearance/

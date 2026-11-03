@@ -6,9 +6,11 @@ import (
 	"time"
 
 	"shizukubot/events"
+	persist "shizukubot/storage/stats"
 )
 
 type BotManager struct {
+	statsStore *persist.Store
 	bots       map[string]*Bot
 	mu         sync.RWMutex
 	logMgr     *LogManager
@@ -40,6 +42,9 @@ func (bm *BotManager) AddBot(bot *Bot) error {
 		return fmt.Errorf("bot %s already exists", bot.ID)
 	}
 
+	if bm.statsStore != nil {
+		bot.Stats.AttachStore(bm.statsStore, bot.ID)
+	}
 	bot.SetLogManager(bm.logMgr)
 	bot.Dispatcher = bm.dispatcher
 	bot.Commands = bm.commands
@@ -246,15 +251,14 @@ func (bm *BotManager) GetBotConfig(botID string) (pluginIDs []string, commandPre
 }
 
 func (bm *BotManager) GetTotalStats() *Stats {
-	bm.mu.RLock()
-	defer bm.mu.RUnlock()
-
+	bots := bm.GetAllBots()
 	total := NewStats()
-	for _, bot := range bm.bots {
+	for _, bot := range bots {
 		stats := bot.Stats.Snapshot()
 		total.UserCount += stats.UserCount
 		total.GroupCount += stats.GroupCount
 		total.TodayDAU += stats.TodayDAU
+		total.QPS += stats.QPS
 		total.SentMessages += stats.SentMessages
 		total.ReceivedMessages += stats.ReceivedMessages
 
@@ -271,11 +275,9 @@ func (bm *BotManager) GetTotalStats() *Stats {
 }
 
 func (bm *BotManager) GetTodayHourlyStats() []*HourlyStat {
-	bm.mu.RLock()
-	defer bm.mu.RUnlock()
-
+	bots := bm.GetAllBots()
 	total := NewStats()
-	for _, bot := range bm.bots {
+	for _, bot := range bots {
 		stats := bot.Stats.Snapshot()
 		for hour, stat := range stats.HourlyStats {
 			if _, ok := total.HourlyStats[hour]; !ok {
@@ -315,4 +317,33 @@ func (bm *BotManager) ReplaceBot(bot *Bot) error {
 	bot.Stats = old.Stats
 	bm.bots[bot.ID] = bot
 	return nil
+}
+
+func (bm *BotManager) SetStatsStore(store *persist.Store) {
+	bm.mu.Lock()
+	defer bm.mu.Unlock()
+	bm.statsStore = store
+	for _, bot := range bm.bots {
+		bot.Stats.AttachStore(store, bot.ID)
+	}
+}
+func (bm *BotManager) StatsStore() *persist.Store {
+	bm.mu.RLock()
+	defer bm.mu.RUnlock()
+	return bm.statsStore
+}
+func (bm *BotManager) BotIDs() []string {
+	bots := bm.GetAllBots()
+	ids := make([]string, 0, len(bots))
+	for _, bot := range bots {
+		ids = append(ids, bot.ID)
+	}
+	return ids
+}
+func (bm *BotManager) QPS() int64 {
+	var total int64
+	for _, b := range bm.GetAllBots() {
+		total += b.Stats.qpsWindow.GetQPS()
+	}
+	return total
 }

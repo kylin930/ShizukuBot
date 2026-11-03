@@ -16,6 +16,7 @@ import (
 	"shizukubot/api"
 	"shizukubot/config"
 	"shizukubot/core"
+	stats "shizukubot/storage/stats"
 )
 
 func main() {
@@ -62,6 +63,13 @@ func main() {
 
 	botManager := core.NewBotManager()
 	logManager := botManager.GetLogManager()
+
+	statsStore, err := stats.Open("data/stats.db", cfg.Statistics, func(msg string) { logManager.Error("", msg) })
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "statistics initialization failed: %v\n", err)
+		os.Exit(1)
+	}
+	botManager.SetStatsStore(statsStore)
 
 	for _, botCfg := range cfg.Bots {
 		bot, err := core.NewBot(botCfg)
@@ -126,6 +134,10 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		fmt.Printf("❌ Server shutdown failed: %v\n", err)
 		os.Exit(1)
+	}
+
+	if err := statsStore.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "statistics shutdown flush failed: %v\n", err)
 	}
 
 	if err := logManager.SaveLogsToFile(); err != nil {

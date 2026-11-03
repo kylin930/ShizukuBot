@@ -1,6 +1,8 @@
 package core
 
 import (
+	"context"
+	persist "shizukubot/storage/stats"
 	"sync"
 	"time"
 )
@@ -28,6 +30,8 @@ type Stats struct {
 	todayDate  string
 	todayUsers map[string]struct{}
 
+	store     *persist.Store
+	botID     string
 	qpsWindow *SlidingWindow
 	mu        sync.RWMutex
 }
@@ -38,6 +42,8 @@ type SlidingWindow struct {
 	bucketSize   time.Duration
 	currentIndex int
 	total        int64
+	lastTick     int64
+	now          func() time.Time
 	mu           sync.RWMutex
 }
 
@@ -46,6 +52,7 @@ func NewSlidingWindow(windowSize int, bucketSize time.Duration) *SlidingWindow {
 		buckets:    make([]int64, windowSize),
 		windowSize: windowSize,
 		bucketSize: bucketSize,
+		now:        time.Now,
 	}
 }
 
@@ -53,27 +60,50 @@ func (w *SlidingWindow) Add(count int64) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	now := time.Now()
-	expectedIndex := int(now.Unix()/int64(w.bucketSize.Seconds())) % w.windowSize
-
-	if expectedIndex != w.currentIndex {
-		steps := (expectedIndex - w.currentIndex + w.windowSize) % w.windowSize
-		for i := 0; i < steps; i++ {
-			nextIndex := (w.currentIndex + 1) % w.windowSize
-			w.total -= w.buckets[nextIndex]
-			w.buckets[nextIndex] = 0
-			w.currentIndex = nextIndex
-		}
-	}
+	w.advance()
+	expectedIndex := w.currentIndex
 
 	w.buckets[expectedIndex] += count
 	w.total += count
 }
 
+func (w *SlidingWindow) advance() {
+	tick := w.now().UnixNano() / int64(w.bucketSize)
+	delta := tick - w.lastTick
+	if w.lastTick == 0 || delta >= int64(w.windowSize) || delta < 0 {
+		clear(w.buckets)
+		w.total = 0
+	} else {
+		for i := int64(1); i <= delta; i++ {
+			index := int((w.lastTick + i) % int64(w.windowSize))
+			w.total -= w.buckets[index]
+			w.buckets[index] = 0
+		}
+	}
+	w.currentIndex = int(tick % int64(w.windowSize))
+	w.lastTick = tick
+}
 func (w *SlidingWindow) GetQPS() int64 {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.advance()
 	return w.total / int64(w.windowSize)
+}
+func (s *Stats) AttachStore(store *persist.Store, bot string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.store = store
+	s.botID = bot
+}
+func (s *Stats) persistent(kind, id string) bool {
+	s.mu.RLock()
+	store, bot := s.store, s.botID
+	s.mu.RUnlock()
+	if store == nil {
+		return false
+	}
+	store.Record(persist.Event{Bot: bot, Kind: kind, Identity: id})
+	return true
 }
 
 func NewStats() *Stats {
@@ -89,6 +119,9 @@ func NewStats() *Stats {
 
 // RecordUser 记录一个接触过的用户，返回是否为新增（用于累计 UserCount）
 func (s *Stats) RecordUser(userID string) {
+	if s.persistent("user", userID) {
+		return
+	}
 	if userID == "" {
 		return
 	}
@@ -117,6 +150,9 @@ func (s *Stats) RecordUser(userID string) {
 
 // RecordGroup 记录一个接触过的群，返回是否为新增（用于累计 GroupCount）
 func (s *Stats) RecordGroup(groupID string) {
+	if s.persistent("group", groupID) {
+		return
+	}
 	if groupID == "" {
 		return
 	}
@@ -130,6 +166,10 @@ func (s *Stats) RecordGroup(groupID string) {
 }
 
 func (s *Stats) IncReceived() {
+	if s.persistent("received", "") {
+		s.qpsWindow.Add(1)
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -145,6 +185,10 @@ func (s *Stats) IncReceived() {
 }
 
 func (s *Stats) IncSent() {
+	if s.persistent("sent", "") {
+		s.qpsWindow.Add(1)
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -185,11 +229,35 @@ func (s *Stats) ResetDAU() {
 // Snapshot returns independent counters and hourly values under the statistics lock.
 func (s *Stats) Snapshot() *Stats {
 	s.mu.RLock()
+	store, bot := s.store, s.botID
+	s.mu.RUnlock()
+	if store != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+		defer cancel()
+		snapshot, err := store.Snapshot(ctx, []string{bot})
+		v := NewStats()
+		v.QPS = s.qpsWindow.GetQPS()
+		if err == nil {
+			v.UserCount = snapshot.UserCount
+			v.GroupCount = snapshot.GroupCount
+			v.TodayDAU = snapshot.TodayDAU
+			v.SentMessages = snapshot.SentMessages
+			v.ReceivedMessages = snapshot.ReceivedMessages
+			for _, h := range snapshot.Hourly {
+				v.HourlyStats[h.Hour] = &HourlyStat{Hour: h.Hour, Sent: h.Sent, Received: h.Received}
+			}
+		}
+		return v
+	}
+
+	s.mu.RLock()
 	defer s.mu.RUnlock()
 	v := NewStats()
 	v.UserCount = s.UserCount
 	v.GroupCount = s.GroupCount
-	v.TodayDAU = s.TodayDAU
+	if s.todayDate == time.Now().Format("2006-01-02") {
+		v.TodayDAU = s.TodayDAU
+	}
 	v.QPS = s.qpsWindow.GetQPS()
 	v.SentMessages = s.SentMessages
 	v.ReceivedMessages = s.ReceivedMessages
@@ -199,3 +267,5 @@ func (s *Stats) Snapshot() *Stats {
 	}
 	return v
 }
+
+func (s *Stats) RealtimeQPS() int64 { return s.qpsWindow.GetQPS() }
