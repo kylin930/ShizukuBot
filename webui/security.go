@@ -41,6 +41,9 @@ func SecurityMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		limit := int64(2 << 20)
+		if r.Method == http.MethodPost && r.URL.Path == "/api/appearance/background" {
+			limit = 8 << 20
+		}
 		if r.Method == http.MethodPost && r.URL.Path == "/api/plugins/data/restore" {
 			limit = plugins.MaxBackupBytes
 		}
