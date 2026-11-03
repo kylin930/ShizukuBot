@@ -12,16 +12,16 @@
         const sidebar = U.el('mdui-card', {variant: 'outlined', class: 'plugin-sidebar'});
         const detail = U.el('mdui-card', {variant: 'outlined', class: 'plugin-detail', id: 'plugin-details'});
         const list = U.el('mdui-list', {id: 'plugins-list'});
-        const search = U.el('mdui-text-field', {label: '搜索插件名称、ID 或简介', id: 'plugin-search', clearable: true});
+        const search = U.el('mdui-text-field', {label: '搜索插件', id: 'plugin-search', clearable: true});
         const filter = U.select('状态筛选', [
             {value: 'all', label: '全部'}, {value: 'enabled', label: '已启用'}, {value: 'disabled', label: '已禁用'},
             {value: 'error', label: '异常'}, {value: 'blocked', label: '策略排除'}, {value: 'running', label: '实例已启动'},
         ], 'all', 'plugin-filter');
         const botSelect = U.select('管理机器人', [], '', 'plugin-bot-select');
         sidebar.append(search, filter, list); body.append(sidebar, detail);
-        toolbar.append(botSelect, U.button('刷新状态', () => reload(true), 'plugin-refresh'));
+        toolbar.append(botSelect, U.button('刷新', () => reload(true), 'plugin-refresh'));
         container.replaceChildren(U.el('div', {class: 'plugin-page-surface'}, [U.text('h1', '代码插件', 'page-title'),
-            U.text('p', '管理已编译插件的配置和实例。Go 源码变更仍需重新构建和部署。', 'plugin-muted'), toolbar, feedback, body]));
+            toolbar, feedback, body]));
         scope.dirty = () => Boolean(editor?.isDirty());
         scope.on(search, 'input', renderList); scope.on(filter, 'change', renderList);
         scope.on(botSelect, 'change', async () => {
@@ -34,8 +34,8 @@
         async function reload(checkDirty) {
             if (checkDirty && !await U.mayLeave()) return;
             const version = ++revision;
-            editor = null; plugins = []; list.replaceChildren(); detail.replaceChildren(U.text('p', '正在加载当前机器人的插件状态…'));
-            U.notice(feedback, '正在加载插件状态…', 'loading');
+            editor = null; plugins = []; list.replaceChildren(); detail.replaceChildren(U.text('p', '加载插件…'));
+            U.notice(feedback, '加载插件…', 'loading');
             try {
                 const nextBots = await scope.request('/api/bots');
                 if (!scope.current() || version !== revision) return;
@@ -47,13 +47,13 @@
                 const data = await scope.request('/api/plugins' + (botId ? '?bot_id=' + encodeURIComponent(botId) : ''));
                 if (!scope.current() || version !== revision) return;
                 plugins = data;
-                U.notice(feedback, botId ? '' : '尚无机器人。可查看已编译插件；请先在机器人页添加真实 Bot 后管理配置和启停。');
+                U.notice(feedback, botId ? '' : '暂无机器人，请先添加。');
                 if (!plugins.some(plugin => plugin.id === selectedId)) selectedId = plugins[0]?.id || '';
                 editor = null; renderList(); renderDetail(); return true;
             } catch (error) {
                 if (!scope.current() || version !== revision) return;
                 loadError = U.errorMessage(error); U.notice(feedback, loadError, 'error');
-                detail.replaceChildren(U.text('p', '未能加载当前 Bot 的插件数据。请检查权限或重试。')); return false;
+                detail.replaceChildren(U.text('p', '无法加载插件，请重试。')); return false;
             }
         }
         function renderList() {
@@ -75,7 +75,7 @@
                 });
                 list.append(item);
             }
-            if (!visible.length) list.append(U.text('p', plugins.length ? '没有符合筛选条件的插件。' : '此二进制没有注册插件。', 'plugin-empty'));
+            if (!visible.length) list.append(U.text('p', plugins.length ? '没有匹配的插件。' : '暂无插件。', 'plugin-empty'));
         }
         function renderDetail() {
             const plugin = plugins.find(p => p.id === selectedId);
@@ -94,40 +94,40 @@
             ];
             for (const [name, value] of facts) overview.append(U.text('dt', name), U.text('dd', value));
             editor = botId ? new (U.ConfigEditor || U.JSONEditor)(plugin.config_schema, plugin.config || {}) : null;
-            const save = U.button('保存并应用配置', () => mutate('save', plugin), 'plugin-save', 'filled');
-            const reset = U.button('重置修改', async () => {if (await U.mayLeave()) {editor = null; renderDetail();}}, 'plugin-reset');
+            const save = U.button('保存并应用', () => mutate('save', plugin), 'plugin-save', 'filled');
+            const reset = U.button('重置', async () => {if (await U.mayLeave()) {editor = null; renderDetail();}}, 'plugin-reset');
             save.disabled = reset.disabled = !botId;
-            configHost.append(U.text('h3', '配置'), editor?.element || U.text('p', '请选择真实机器人后配置。'), U.el('div', {class: 'plugin-actions'}, [save, reset]));
-            if (plugin.config_error) configHost.append(U.errorDetails('已保存配置校验失败：' + plugin.config_error));
+            configHost.append(U.text('h3', '配置'), editor?.element || U.text('p', '请先选择机器人。'), U.el('div', {class: 'plugin-actions'}, [save, reset]));
+            if (plugin.config_error) configHost.append(U.errorDetails('配置无效：' + plugin.config_error));
             const toggle = U.button(plugin.enabled ? '禁用插件' : '启用插件', () => mutate('toggle', plugin), 'plugin-toggle', 'filled');
             toggle.disabled = !botId || (!plugin.enabled && !plugin.allowed);
-            const restart = U.button('重启插件实例', () => mutate('restart', plugin), 'plugin-restart');
+            const restart = U.button('重启实例', () => mutate('restart', plugin), 'plugin-restart');
             restart.disabled = !botId || !plugin.allowed || !plugin.running;
-            actions.append(toggle, restart, U.button('进入沙盒测试', () => U.openSandbox(botId, plugin.id), 'plugin-sandbox'));
+            actions.append(toggle, restart, U.button('沙盒测试', () => U.openSandbox(botId, plugin.id), 'plugin-sandbox'));
             runtime.append(U.text('h3', '运行状态'), actions,
-                U.text('p', '重启只重新创建当前二进制中的插件实例，不读取修改后的 Go 源码，不会重启 ShizukuBot。', 'plugin-muted'));
-            if (plugin.restart_required) runtime.append(U.text('p', '已保存的配置尚未应用到当前实例。', 'plugin-warning'));
+                U.help('重启说明', ['仅重启此插件实例。源码更新需要重新构建和部署。']));
+            if (plugin.restart_required) runtime.append(U.text('p', '配置未应用，请重启实例。', 'plugin-warning'));
             if (plugin.last_error) runtime.append(U.text('h4', '最近一次错误'), U.errorDetails(plugin.last_error));
-            if (botId && !plugin.allowed) runtime.append(U.text('p', '此 Bot 的插件选择策略排除了该插件。可先保存配置；启用前请在机器人配置中允许它。', 'plugin-warning'));
+            if (botId && !plugin.allowed) runtime.append(U.text('p', '此机器人已排除此插件。请在机器人配置中允许后再启用。', 'plugin-warning'));
             const advanced = U.el('details', {class: 'plugin-section'}, [U.text('summary', '高级信息与数据备份'),
                 U.text('p', '权限：' + (plugin.permissions || []).join(', ')), U.text('h4', 'Manifest'),
                 U.text('pre', JSON.stringify(Object.fromEntries(['api_version','id','name','version','description','author','runtime','permissions','config_schema'].map(k => [k, plugin[k]])), null, 2)),
                 U.text('h4', '原始 Schema'), U.text('pre', JSON.stringify(plugin.config_schema, null, 2)),
-                U.text('p', '备份包含插件自己的私有配置和状态。恢复仅支持空数据范围，保持禁用，不覆盖已有数据。'),
+                U.text('p', '备份含私有配置和状态。仅能恢复到空数据范围；恢复后保持禁用，不覆盖已有数据。'),
                 U.button('备份配置与状态', () => backup(plugin.id), 'plugin-backup'),
             ]);
             const file = U.el('input', {type: 'file', accept: '.json,application/json', id: 'plugin-restore-file', 'aria-label': '选择插件数据备份'});
             advanced.append(file, U.button('恢复数据备份', () => restore(file), 'plugin-restore'));
-            detail.replaceChildren(U.text('h2', plugin.name), U.text('p', plugin.description || '未填写简介。'), overview, configHost, runtime, advanced);
+            detail.replaceChildren(U.text('h2', plugin.name), U.el('p', {text: plugin.description || '', hidden: !plugin.description}), overview, configHost, runtime, advanced);
         }
         async function mutate(action, plugin) {
             if (scope.busy || !botId) return;
-            if (!plugin.bot_exists || plugin.bot_id !== botId) {U.notice(feedback, '当前 Bot 的状态尚未刷新，请重试。', 'error'); return;}
+            if (!plugin.bot_exists || plugin.bot_id !== botId) {U.notice(feedback, '状态已变化，请刷新后重试。', 'error'); return;}
             let value;
             try {if (action === 'save') value = editor.getValue();}
-            catch (error) {U.notice(feedback, '配置校验失败：' + error.message, 'error'); return;}
+            catch (error) {U.notice(feedback, '配置无效：' + error.message, 'error'); return;}
             scope.busy = true; U.controlsBusy(container, true);
-            U.notice(feedback, action === 'save' ? '正在保存并应用配置…' : '正在执行实例操作…', 'loading');
+            U.notice(feedback, action === 'save' ? '正在保存并应用…' : '更新实例…', 'loading');
             const chosenBot = botId;
             try {
                 let result;
@@ -138,9 +138,9 @@
                 scope.busy = false;
                 const refreshed = await reload(false);
                 if (!scope.current()) return;
-                if (!refreshed) {U.notice(feedback, '操作已提交，但刷新实际状态失败：' + loadError + (result?.restart_error ? '；插件实例重启失败：' + result.restart_error : ''), 'error'); return;}
-                if (result?.restart_error) U.notice(feedback, '配置已保存，但重启插件实例失败：' + result.restart_error, 'error');
-                else U.notice(feedback, action === 'save' ? (result.applied ? '配置已保存，插件实例已应用新配置。' : '配置已保存。') : '操作完成，已刷新实际状态。', 'success');
+                if (!refreshed) {U.notice(feedback, '已提交，状态刷新失败：' + loadError + (result?.restart_error ? '；实例重启失败：' + result.restart_error : ''), 'error'); return;}
+                if (result?.restart_error) U.notice(feedback, '配置已保存，但实例重启失败：' + result.restart_error, 'error');
+                else U.notice(feedback, action === 'save' ? (result.applied ? '配置已应用。' : '已保存。') : '已更新。', 'success');
             } catch (error) {if (scope.current()) U.notice(feedback, U.errorMessage(error), 'error');}
             finally {scope.busy = false; if (scope.current()) U.controlsBusy(container, false);}
         }
@@ -150,7 +150,7 @@
                 if (!scope.current()) return;
                 const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'}));
                 const a = U.el('a', {href: url, download: id + '-data.json'}); a.click(); URL.revokeObjectURL(url);
-                U.notice(feedback, '私有数据备份已生成。请妥善保管。');
+                U.notice(feedback, '备份已生成，请妥善保管。');
             } catch (error) {if (scope.current()) U.notice(feedback, U.errorMessage(error), 'error');}
         }
         async function restore(file) {

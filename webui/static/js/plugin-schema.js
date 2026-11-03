@@ -75,7 +75,7 @@
             this.feedback = U.el('div', {'aria-live': 'polite'});
             this.body = U.el('div', {class: 'schema-body'});
             this.formButton = U.button('表单编辑', () => this.switchMode('form'), 'plugin-form-mode');
-            this.jsonButton = U.button('高级 JSON 编辑', () => this.switchMode('json'), 'plugin-json-mode');
+            this.jsonButton = U.button('JSON 编辑', () => this.switchMode('json'), 'plugin-json-mode');
             this.element = U.el('div', {class: 'schema-editor'}, [U.el('div', {class: 'plugin-actions'}, [this.formButton, this.jsonButton]), this.feedback, this.body]);
             this.render();
         }
@@ -120,7 +120,7 @@
                 if (this.mode === 'json') {
                     const value = JSON.parse(this.raw);
                     if (!object(value)) throw Error('配置根节点必须为对象');
-                    if (!formSupport(this.schema, value)) throw Error('此配置含复杂、未知或超出表单容量的结构，请继续使用 JSON 模式，数据已保留。');
+                    if (!formSupport(this.schema, value)) throw Error('此配置暂不支持表单，请使用 JSON 编辑；内容已保留。');
                     this.value = U.clone(value);
                 } else {
                     if (this.invalid.size) throw Error('请先修正无效数值，再切换模式。');
@@ -134,7 +134,7 @@
             this.formButton.variant = this.mode === 'form' ? 'filled' : 'outlined';
             this.jsonButton.variant = this.mode === 'json' ? 'filled' : 'outlined';
             if (this.mode === 'json') {
-                if (!formSupport(this.schema, this.value)) U.notice(this.feedback, '表单暂不支持此配置结构，已保留完整 JSON。');
+                if (!formSupport(this.schema, this.value)) U.notice(this.feedback, '此配置使用 JSON 编辑。');
                 const input = U.el('textarea', {class: 'plugin-json', value: this.raw, 'aria-label': '插件配置 JSON', spellcheck: false});
                 input.addEventListener('input', () => {this.raw = input.value;}); this.body.append(input); return;
             }
@@ -163,7 +163,7 @@
                     if (enabled.isConnected) this.render();
                 });
                 section.append(enabled);
-                if (current === undefined) {section.append(U.text('span', own(schema, 'default') ? ' 未设置时由后端填入默认值' : ' 未设置', 'plugin-muted')); return;}
+                if (current === undefined) {section.append(U.text('span', own(schema, 'default') ? ' 未设置时使用默认值' : ' 未设置', 'plugin-muted')); return;}
             }
             const value = current === undefined ? defaultValue(schema) : current;
             if (schema.enum?.length) {

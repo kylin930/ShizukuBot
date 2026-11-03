@@ -17,8 +17,8 @@
         }
         if (reply.keyboard != null) card.append(U.text('pre', typeof reply.keyboard === 'string' ? reply.keyboard : JSON.stringify(reply.keyboard, null, 2)));
         if (!names.has(kind)) card.append(U.text('pre', JSON.stringify(reply, null, 2)));
-        if (['image','rich_media','video'].includes(kind)) card.append(U.text('small', '捕获的媒体响应数据；不自动请求外部资源，也不代表已发送到 QQ。', 'plugin-muted'));
-        if (kind === 'markdown' || kind === 'keyboard') card.append(U.text('small', '仅显示源文本和结构，不执行 HTML。', 'plugin-muted'));
+        if (['image','rich_media','video'].includes(kind)) card.append(U.text('small', '媒体信息（不加载外部资源）', 'plugin-muted'));
+        if (kind === 'markdown' || kind === 'keyboard') card.append(U.text('small', '按源文本显示。', 'plugin-muted'));
         host.append(card);
     }
     function appendExecution(host, execution) {
@@ -40,16 +40,17 @@
         let turns = [];
         const feedback = U.el('div', {id: 'sandbox-feedback'});
         const chat = U.el('div', {id: 'sandbox-chat', class: 'sandbox-chat', role: 'log', 'aria-live': 'polite'});
-        const botSelect = U.select('调试机器人或独立范围', [], '', 'sandbox-bot-select');
-        const debugId = U.el('mdui-text-field', {label: '独立调试标识（不是生产 Bot）', value: 'debug-local', id: 'sandbox-debug-id'});
+        const botSelect = U.select('测试范围', [], '', 'sandbox-bot-select');
+        const debugId = U.el('mdui-text-field', {label: '独立测试标识', value: 'debug-local', id: 'sandbox-debug-id'});
         const pluginSelect = U.select('测试插件', [], '', 'sandbox-plugin-select');
         const type = U.select('消息来源', [{value:'c2c',label:'C2C 私聊'}, {value:'group',label:'群聊'}], 'c2c', 'sandbox-type');
         const input = U.el('mdui-text-field', {label: '输入模拟消息，Enter 发送，Shift+Enter 换行', rows: 2, id: 'sandbox-input'});
         const send = U.button('发送测试消息', sendMessage, 'sandbox-send', 'filled'); send.disabled = true;
         const clear = U.button('清空会话', () => {turns = []; renderTurns();}, 'sandbox-clear');
         const toolbar = U.el('div', {class: 'sandbox-toolbar'}, [botSelect, debugId, pluginSelect, type, clear]);
-        const note = U.el('div', {id: 'sandbox-scope-note', class: 'plugin-notice'});
-        container.replaceChildren(U.el('div', {class: 'plugin-page-surface'}, [U.text('h1', '沙盒测试', 'page-title'), toolbar, note, feedback,
+        const note = U.el('div', {id: 'sandbox-scope-note', class: 'plugin-muted'});
+        const scopeHelp = U.help('范围说明', []);
+        container.replaceChildren(U.el('div', {class: 'plugin-page-surface'}, [U.text('h1', '沙盒测试', 'page-title'), toolbar, U.text('p', '仅模拟执行，不会发送 QQ 消息。', 'plugin-muted'), note, scopeHelp, feedback,
             U.el('mdui-card', {variant: 'outlined', class: 'sandbox-workspace'}, [chat, U.el('div', {class: 'sandbox-compose'}, [input, send])])]));
         scope.on(botSelect, 'change', async () => {if (scope.busy) return; selected = botSelect.value; turns = []; renderTurns(); await loadPlugins();});
         scope.on(debugId, 'change', async () => {if (!scope.busy) {turns = []; renderTurns(); await loadPlugins();}});
@@ -59,8 +60,11 @@
         function botId() {return independent() ? debugId.value.trim() : selected.slice(4);}
         function updateNote() {
             const plugin = plugins.find(p => p.id === pluginSelect.value);
-            const configuration = independent() ? '独立调试仅使用 Schema 默认配置，不读取生产配置。' : '使用所选 Bot 已保存的插件配置及默认值，不包含尚未保存的表单修改。';
-            U.notice(note, '每次发送使用新实例和临时状态，不连接 QQ，也不调用真实发送能力。沙盒测试不会启用生产插件。' + configuration + (!independent() && plugin?.enabled === false ? ' 当前插件在生产中未启用，仍可独立测试。' : ''));
+            U.notice(note, !independent() && plugin?.enabled === false ? '此插件未启用，仍可测试。' : '');
+            scopeHelp.querySelectorAll('p').forEach(node => node.remove());
+            scopeHelp.append(U.text('p', independent() ? '使用默认配置，不读取机器人配置。' : '使用此机器人已保存的插件配置，不包含表单中的未保存修改。'),
+                U.text('p', '每次测试使用独立临时状态，不启用插件，也不请求外部媒体。'));
+
         }
         async function loadPlugins() {
             const version = ++revision; debugId.hidden = !independent(); send.disabled = true;
@@ -72,15 +76,15 @@
                 const data = await scope.request(url);
                 if (!scope.current() || version !== revision) return;
                 plugins = data;
-                const choices = [...(independent() ? [] : [{value:'',label:'全部已启用且策略允许的插件'}]), ...plugins.map(p => ({value:p.id,label:p.name + (!independent() && !p.enabled ? '（未启用，可独立测试）' : '')}))];
+                const choices = [...(independent() ? [] : [{value:'',label:'全部已启用插件'}]), ...plugins.map(p => ({value:p.id,label:p.name + (!independent() && !p.enabled ? '（未启用）' : '')}))];
                 pluginSelect.replaceChildren(...choices.map(item => U.el('mdui-menu-item', {value:item.value,text:item.label})));
                 pluginSelect.value = plugins.some(p => p.id === U.context.pluginId) ? U.context.pluginId : plugins[0]?.id || '';
-                send.disabled = !plugins.length; updateNote(); U.notice(feedback, plugins.length ? '' : '此二进制没有注册可调试插件。');
+                send.disabled = !plugins.length; updateNote(); U.notice(feedback, plugins.length ? '' : '暂无可测试插件。');
             } catch (error) {if (scope.current() && version === revision) U.notice(feedback, U.errorMessage(error), 'error');}
         }
         function renderTurns() {
             chat.replaceChildren();
-            if (!turns.length) chat.append(U.text('p', '输入模拟消息查看捕获回复、执行状态和错误。每次调试的插件状态独立。', 'plugin-empty'));
+            if (!turns.length) chat.append(U.text('p', '输入消息开始测试。', 'plugin-empty'));
             for (const turn of turns) {
                 const block = U.el('section', {class: 'sandbox-turn'});
                 block.append(U.text('div', `${turn.independent ? '独立调试' : 'Bot'} ${turn.botId} · ${turn.type === 'group' ? '群聊' : 'C2C'} · ${turn.pluginId || '全部启用插件'}`, 'plugin-muted'),
@@ -92,7 +96,7 @@
                     else if (data.replies?.length) data.replies.forEach(reply => appendReply(block, {kind:'text',text:reply}));
                     (data.executions || []).forEach(execution => appendExecution(block, execution));
                     (data.errors || []).forEach(error => block.append(U.errorDetails(error)));
-                    if (!data.executions?.length) block.append(U.text('p', '没有执行插件。可显式选择一个已编译插件独立测试；“全部”只运行启用且策略允许的实例。'));
+                    if (!data.executions?.length) block.append(U.text('p', '没有执行插件，请选择插件重试。“全部”仅运行已启用且允许的插件。'));
                     block.append(U.text('small', `本次请求耗时 ${turn.elapsed.toFixed(1)} ms`, 'plugin-muted'));
                 }
                 if (turn.error) block.append(U.errorDetails(turn.error));
@@ -125,7 +129,7 @@
             bots = (await scope.request('/api/bots')).sort((a,b) => a.id.localeCompare(b.id));
             if (!scope.current()) return;
             selected = bots.some(bot => bot.id === U.context.botId) ? 'bot:' + U.context.botId : bots[0] ? 'bot:' + bots[0].id : 'independent';
-            botSelect.replaceChildren(...bots.map(bot => U.el('mdui-menu-item', {value:'bot:' + bot.id,text:`${bot.name || bot.id} · ${bot.id}`})), U.el('mdui-menu-item', {value:'independent',text:'独立调试范围（非生产 Bot）'}));
+            botSelect.replaceChildren(...bots.map(bot => U.el('mdui-menu-item', {value:'bot:' + bot.id,text:`${bot.name || bot.id} · ${bot.id}`})), U.el('mdui-menu-item', {value:'independent',text:'独立测试'}));
             botSelect.value = selected; await loadPlugins();
         } catch (error) {if (scope.current()) {send.disabled = true; U.notice(feedback, U.errorMessage(error), 'error');}}
     }

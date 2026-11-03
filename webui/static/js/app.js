@@ -941,17 +941,7 @@ function renderAbout(container) {
                     <mdui-icon name="smart_toy" style="font-size:48px;color:var(--mdui-color-primary)"></mdui-icon>
                 </div>
                 <div class="about-title">ShizukuBot</div>
-                <div class="about-subtitle">基于 Go + MDUI2 的 QQ 机器人管理框架</div>
-                <div class="version-info">
-                    <div class="version-item">
-                        <div class="version-label">Core</div>
-                        <div class="version-value">1.0.0</div>
-                    </div>
-                    <div class="version-item">
-                        <div class="version-label">WebUI</div>
-                        <div class="version-value">1.0.0</div>
-                    </div>
-                </div>
+                <div class="about-subtitle">QQ 机器人管理后台</div>
                 <mdui-divider></mdui-divider>
                 <div style="text-align:left;margin-top:24px">
                     <div class="tech-stack-title">技术栈</div>
@@ -974,7 +964,7 @@ function renderAbout(container) {
                         </div>
                         <div class="tech-item">
                             <mdui-icon name="smart_toy"></mdui-icon>
-                            <span>botgo SDK</span>
+                            <span>botgo-plus</span>
                         </div>
                         <div class="tech-item">
                             <mdui-icon name="webhook"></mdui-icon>
@@ -1083,7 +1073,7 @@ async function loadBotsManageList(container) {
 
 function renderQQDiagnostics(bot) {
     const d = bot.diagnostics || {};
-    const time = value => value ? escapeHtml(new Date(value).toLocaleString()) : '尚未验证';
+    const time = value => value ? escapeHtml(new Date(value).toLocaleString()) : '暂无记录';
     const categories = {
         authentication: '认证失败', platform_limit: '平台限频',
         missing_reply_id: '缺少消息关联 ID', reply_limit: '本条消息回复次数已达上限',
@@ -1094,17 +1084,25 @@ function renderQQDiagnostics(bot) {
         timeout_unknown_delivery: '发送超时，是否送达未知', canceled: '请求已取消',
         unknown_platform_error: '未知平台错误', network_or_protocol: '网络或协议异常'
     };
-    return `<details class="qq-diagnostics" style="margin-top:16px">
-        <summary>QQ 联调诊断</summary>
-        <div style="line-height:1.8;font-size:13px;margin-top:8px">
-            <div>接入模式：${escapeHtml(bot.mode || 'webhook')}；进程状态：${bot.running ? '运行中' : '已停止'}（不代表官方回调已验证）</div>
-            <div>最近接收事件：${time(d.last_event_at)}；类型：${escapeHtml(d.last_event_type || '尚未验证')}；消息 ID 字段：${d.last_event_at ? (d.has_message_id ? '已收到' : '本事件未提供') : '尚未验证'}</div>
-            <div>最近被动回复成功：${time(d.last_reply_at)}（仅表示 OpenAPI 接受，QQ 客户端送达需人工验收）</div>
-            <div>最近发送失败：${escapeHtml(categories[d.last_send_failure] || d.last_send_failure || '尚无记录')}；HTTP：${escapeHtml(String(d.http_status || '尚未验证'))}；平台码：${escapeHtml(String(d.platform_code || '尚未验证'))}</div>
-            <div>最近连接/回调异常：${escapeHtml(d.last_transport_error || '尚无记录')}；${time(d.last_transport_error_at)}</div>
-            <div>检查清单：HTTPS 回调 /webhook/${escapeHtml(bot.id)} → 平台事件权限与测试成员 → 签名验证 → /ping → QQ 客户端实际收到 pong。</div>
-            <div>Webhook 优先；WebSocket 仅保留已有接入兼容，不保证新机器人可用。IP 白名单与目标权限不支持自动检测。沙盒成功不代表 QQ 送达。</div>
-        </div>
+    const failure = d.last_send_failure ? (categories[d.last_send_failure] || d.last_send_failure) : '';
+    return `<details class="qq-diagnostics">
+        <summary>QQ 诊断</summary>
+        <dl class="qq-summary">
+            <dt>接入方式</dt><dd>${escapeHtml(bot.mode || 'webhook')} · ${bot.running ? '运行中' : '已停止'}</dd>
+            <dt>最近事件</dt><dd>${time(d.last_event_at)}</dd>
+            <dt>最近回复</dt><dd>${time(d.last_reply_at)} <small>平台接受</small></dd>
+            <dt>最近错误</dt><dd>${escapeHtml(failure || d.last_transport_error || '暂无记录')}</dd>
+        </dl>
+        <details class="ui-help"><summary>详细诊断</summary>
+            <p>事件类型：${escapeHtml(d.last_event_type || '暂无记录')}；消息 ID：${d.last_event_at ? (d.has_message_id ? '已收到' : '本事件未提供') : '未检测'}</p>
+            <p>HTTP：${escapeHtml(String(d.http_status || '未检测'))}；平台码：${escapeHtml(String(d.platform_code || '未检测'))}；Trace ID：${escapeHtml(d.trace_id || '暂无记录')}</p>
+            <p>最近回调/连接错误：${escapeHtml(d.last_transport_error || '暂无记录')} · ${time(d.last_transport_error_at)}</p>
+        </details>
+        <details class="ui-help"><summary>接入帮助</summary>
+            <p>回调地址：/webhook/${escapeHtml(bot.id)}。检查 HTTPS、事件权限和测试成员，再发送 /ping。</p>
+            <p>运行中不代表已收到回调；平台接受不等于 QQ 客户端送达，需在客户端确认。沙盒结果不计入此处。</p>
+            <p>建议使用 Webhook；WebSocket 取决于平台授权。IP 白名单和目标权限需在平台检查。</p>
+        </details>
     </details>`;
 }
 

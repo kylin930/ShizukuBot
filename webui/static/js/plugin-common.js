@@ -44,9 +44,12 @@
         if (kind === 'loading') host.append(el('mdui-circular-progress', {class: 'plugin-spinner'}));
         if (message) host.append(text('span', message)); else host.className = '';
     }
+    function help(label, paragraphs) {
+        return el('details', {class: 'ui-help'}, [text('summary', label), ...paragraphs.map(value => text('p', value))]);
+    }
     function errorMessage(error) {
-        if (error.status === 401) return '登录已失效，请重新登录后重试。';
-        if (error.status === 403) return '权限不足：此操作需要管理员权限，或请求来源未通过检查。';
+        if (error.status === 401) return '登录已过期，请重新登录。';
+        if (error.status === 403) return '权限不足，请检查账号和请求来源。';
         return error.message || '请求失败';
     }
     async function request(url, options = {}) {
@@ -62,7 +65,7 @@
             const error = Error(body?.message || source.slice(0, 1000) || `HTTP ${response.status}`);
             error.status = response.status; error.code = body?.code; throw error;
         }
-        if (!body) throw Error('服务器返回了无效的 JSON，请重试。');
+        if (!body) throw Error('服务器响应无效，请重试。');
         return typeof body.code === 'number' ? body.data : body;
     }
     function begin(container) {
@@ -85,7 +88,7 @@
     }
     async function mayLeave() {
         if (!active) return true;
-        if (active.busy) {window.showSnackbar?.('正在执行操作，请完成后再切换。'); return false;}
+        if (active.busy) {window.showSnackbar?.('操作中，请稍候。'); return false;}
         if (!active.dirty()) return true;
         if (!leavePromise) leavePromise = confirmDiscard().finally(() => {leavePromise = null;});
         return leavePromise;
@@ -116,6 +119,6 @@
     }
     // Neutral page helpers share lifecycle guards without exposing plugin selection state.
     window.AdminUI = {el, text, clone, canonical, button, select, notice, request, begin, dispose, mayLeave,
-        controlsBusy, errorMessage, errorDetails};
+        controlsBusy, errorMessage, errorDetails, help};
     window.PluginUI = {...window.AdminUI, JSONEditor, context, openSandbox};
 })();
