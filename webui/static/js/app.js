@@ -27,57 +27,49 @@ const apiList = [
     { method: 'GET',    path: '/api/logs',                      desc: '获取历史日志' },
 ];
 
-// ==================== API 封装 ====================
-async function apiGet(url) {
-    const resp = await fetch(url);
-    return resp.json();
+// ==================== API / page lifecycle ====================
+let pageScope = null;
+let pageEpoch = 0;
+let navigationEpoch = 0;
+async function apiRequest(url, options = {}) {
+    const response = await fetch(url, options);
+    const data = await response.json();
+    if (options.signal?.aborted) throw new DOMException('页面已切换', 'AbortError');
+    if (!response.ok || (typeof data.code === 'number' && data.code !== 0)) {
+        const error = Error(data.message || `HTTP ${response.status}`); error.status = response.status; throw error;
+    }
+    return data;
 }
-
-async function apiPost(url, data) {
-    const resp = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-    });
-    return resp.json();
-}
-
-async function apiPut(url, data) {
-    const resp = await fetch(url, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-    });
-    return resp.json();
-}
-
-async function apiDelete(url) {
-    const resp = await fetch(url, { method: 'DELETE' });
-    return resp.json();
-}
+async function apiGet(url) {return apiRequest(url, {signal: pageScope?.controller.signal});}
+async function apiPost(url, data) {return apiRequest(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});}
+async function apiPut(url, data) {return apiRequest(url, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});}
+async function apiDelete(url) {return apiRequest(url, {method: 'DELETE'});}
 
 // ==================== 路由管理 ====================
-let routeRenderTimer = null;
 async function navigateTo(route) {
-    if (!await window.PluginUI.mayLeave()) {syncNavigation(currentRoute); return false;}
-    window.PluginUI.dispose();
+    if (route === currentRoute && pageScope) {syncNavigation(route); return true;}
+    const token = ++navigationEpoch;
+    const allowed = await window.PluginUI.mayLeave();
+    if (token !== navigationEpoch) return false;
+    if (!allowed) {
+        history.replaceState(null, '', '#' + currentRoute); syncNavigation(currentRoute); return false;
+    }
     currentRoute = route;
-    window.location.hash = route;
-    renderPage();
-
-    syncNavigation(route);
-    return true;
+    if (window.location.hash !== '#' + route) history.pushState(null, '', '#' + route);
+    renderPage(); syncNavigation(route); return true;
 }
 
 function syncNavigation(route) {
     // 更新移动端导航项激活状态
     document.querySelectorAll('.nav-item').forEach(item => {
         item.active = item.dataset.route === route;
+        if (item.active) item.setAttribute('aria-current', 'page'); else item.removeAttribute('aria-current');
     });
 
     // 更新桌面端 NavigationRail 选中项
     const rail = document.querySelector('.desktop-nav');
     if (rail) {
+        rail.querySelectorAll('[data-route]').forEach(item => {if (item.dataset.route === route) item.setAttribute('aria-current', 'page'); else item.removeAttribute('aria-current');});
         const routeMap = {
             '/stats': 'stats',
             '/bots': 'bots',
@@ -97,43 +89,25 @@ function syncNavigation(route) {
 
 function renderPage() {
     const content = document.getElementById('app-content');
-    
-    content.classList.remove('fade-in');
-    content.classList.add('fade-out');
-
-    clearTimeout(routeRenderTimer);
-    routeRenderTimer = setTimeout(() => {
-        if (statsRefreshTimer) {
-            clearInterval(statsRefreshTimer);
-            statsRefreshTimer = null;
-        }
-        if (logWebSocket) {
-            logWebSocket.close();
-            logWebSocket = null;
-        }
-
-        switch (currentRoute) {
-            case '/stats':     renderStats(content); break;
-            case '/bots':      renderBots(content); break;
-            case '/logs':      renderLogs(content); break;
-            case '/api-test':  renderApiTest(content); break;
-            case '/plugins':   window.PluginPages.renderPlugins(content); break;
-            case '/rules':     window.RulesPage.render(content); break;
-            case '/community': renderCommunity(content); break;
-            case '/sandbox':   window.SandboxPage.render(content); break;
-            case '/config':    renderConfig(content); break;
-            case '/users':     renderUsers(content); break;
-            case '/about':     renderAbout(content); break;
-            default:           renderStats(content); break;
-        }
-
-        content.classList.remove('fade-out');
-        content.classList.add('fade-in');
-    }, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180);
+    ++pageEpoch;
+    if (statsRefreshTimer) {clearInterval(statsRefreshTimer); statsRefreshTimer = null;}
+    if (logWebSocket) {logWebSocket.onmessage = null; logWebSocket.close(); logWebSocket = null;}
+    historyChart?.destroy(); hourlyChart?.destroy(); historyChart = hourlyChart = null;
+    pageScope = window.AdminUI.begin(content);
+    const renderers = {'/stats': renderStats, '/bots': renderBots, '/logs': renderLogs, '/api-test': renderApiTest,
+        '/plugins': window.PluginPages.renderPlugins, '/rules': window.RulesPage.render,
+        '/community': renderCommunity, '/sandbox': window.SandboxPage.render, '/config': renderConfig,
+        '/users': renderUsers, '/about': renderAbout};
+    const epoch = pageEpoch;
+    Promise.resolve((renderers[currentRoute] || renderStats)(content)).catch(error => {
+        if (epoch === pageEpoch && error.name !== 'AbortError') showSnackbar('页面加载失败：' + error.message);
+    });
+    window.AdminUI.enter(content, true);
 }
 
 // ==================== 统计页 ====================
 async function renderStats(container) {
+    const epoch = pageEpoch;
     container.innerHTML = `
         <div class="page-title">统计</div>
 
@@ -186,12 +160,14 @@ async function renderStats(container) {
     `;
 
     await loadBotsList();
+    if (epoch !== pageEpoch) return;
     await updateStats();
+    if (epoch !== pageEpoch) return;
     initHistoryChart();
     initHourlyChart();
     statsRefreshTimer = setInterval(() => {
         updateStats();
-        loadBotsList();
+        if (!document.querySelector('#bots-list mdui-button[loading]')) loadBotsList();
     }, 5000);
 }
 
@@ -202,7 +178,7 @@ async function loadBotsList() {
         if (!listEl) return;
 
         if (data.code !== 0 || !data.data || data.data.length === 0) {
-            listEl.innerHTML = '<div style="padding:16px;color:var(--mdui-color-on-surface-variant)">暂无机器人，请在配置页添加</div>';
+            listEl.innerHTML = '<div style="padding:16px;color:rgb(var(--mdui-color-on-surface-variant))">暂无机器人，请在配置页添加</div>';
             return;
         }
 
@@ -217,7 +193,7 @@ async function loadBotsList() {
                 const btnAction = bot.running ? 'stop' : 'start';
 
                 return `
-                    <div class="bot-item" data-bot-id="${bot.id}">
+                    <div class="bot-item" data-bot-id="${escapeHtml(bot.id)}">
                         <div class="bot-item-info">
                             <span class="bot-status-dot" style="background:${statusColor}"></span>
                             <div class="bot-item-text">
@@ -228,7 +204,7 @@ async function loadBotsList() {
                                 </div>
                             </div>
                         </div>
-                        <mdui-button variant="${btnVariant}" icon="${btnIcon}" data-action="${btnAction}" data-id="${bot.id}">
+                        <mdui-button variant="${btnVariant}" icon="${btnIcon}" data-action="${btnAction}" data-id="${escapeHtml(bot.id)}">
                             ${btnText}
                         </mdui-button>
                     </div>
@@ -240,21 +216,25 @@ async function loadBotsList() {
             btn.addEventListener('click', async () => {
                 const id = btn.dataset.id;
                 const action = btn.dataset.action;
-                btn.loading = true;
+                if (btn.loading) return;
+                btn.loading = true; btn.disabled = true;
                 try {
                     if (action === 'start') {
                         await apiPost(`/api/bots/${id}/start`, {});
                     } else {
                         await apiPost(`/api/bots/${id}/stop`, {});
                     }
+                    showSnackbar(action === 'start' ? '已启动' : '已停止');
                     await loadBotsList();
                 } catch (e) {
+        if (e.name === 'AbortError') return;
                     showSnackbar('操作失败: ' + e.message);
                 }
-                btn.loading = false;
+                btn.loading = false; btn.disabled = false;
             });
         });
     } catch (e) {
+        if (e.name === 'AbortError') return;
         console.error('加载机器人列表失败', e);
     }
 }
@@ -276,10 +256,11 @@ async function updateStats() {
                 const receivedData = s.hourly_stats.map(h => h.received || 0);
                 hourlyChart.data.datasets[0].data = sentData;
                 hourlyChart.data.datasets[1].data = receivedData;
-                hourlyChart.update();
+                hourlyChart.update('none');
             }
         }
     } catch (e) {
+        if (e.name === 'AbortError') return;
         console.error('更新统计失败:', e);
     }
 }
@@ -296,7 +277,7 @@ function initHistoryChart() {
                 { label: '接收', data: [], borderColor: 'rgb(245, 124, 0)', tension: 0.3, fill: false },
             ],
         },
-        options: { responsive: true, maintainAspectRatio: false },
+        options: { responsive: true, maintainAspectRatio: false, animation: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? false : {duration: 250} },
     });
 }
 
@@ -312,7 +293,7 @@ function initHourlyChart() {
                 { label: '接收', data: Array(24).fill(0), backgroundColor: 'rgba(245, 124, 0, 0.6)' },
             ],
         },
-        options: { responsive: true, maintainAspectRatio: false },
+        options: { responsive: true, maintainAspectRatio: false, animation: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? false : {duration: 250} },
     });
 }
 
@@ -418,11 +399,12 @@ async function loadHistoryLogs() {
         if (data.code === 0 && data.data && data.data.logs) {
             data.data.logs.forEach(log => appendLogItem(area, log));
         } else {
-            area.innerHTML = '<div style="padding:16px;color:var(--mdui-color-on-surface-variant)">暂无日志</div>';
+            area.innerHTML = '<div style="padding:16px;color:rgb(var(--mdui-color-on-surface-variant))">暂无日志</div>';
         }
 
         renderPagination(data.data?.total || 0);
     } catch (e) {
+        if (e.name === 'AbortError') return;
         console.error('加载历史日志失败:', e);
     }
 }
@@ -528,7 +510,7 @@ async function sendApiRequest() {
     respArea.textContent = '请求中...';
 
     try {
-        const opts = { method };
+        const opts = { method, signal: pageScope.controller.signal };
         if (bodyText && (method === 'POST' || method === 'PUT')) {
             opts.headers = { 'Content-Type': 'application/json' };
             opts.body = bodyText;
@@ -542,23 +524,27 @@ async function sendApiRequest() {
             respArea.textContent = text;
         }
     } catch (e) {
+        if (e.name === 'AbortError') return;
         respArea.textContent = '请求失败: ' + e.message;
     }
 }
 
 // ==================== 配置页 ====================
 async function renderConfig(container) {
+    const epoch = pageEpoch;
     container.innerHTML = `
         <div class="page-title">配置</div>
 
+        <div id="config-feedback" aria-live="polite"></div>
         <!-- WebUI 配置 -->
         <mdui-card variant="outlined" class="config-card">
             <div style="font-size:16px;font-weight:500;margin-bottom:16px">WebUI 设置</div>
             <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px">
-                <mdui-text-field label="端口" type="number" id="webui-port" style="width:200px"></mdui-text-field>
+                <mdui-text-field label="端口" type="number" min="1" max="65535" id="webui-port" aria-describedby="config-port-error" style="width:200px"></mdui-text-field>
                 <mdui-switch label="启用" id="webui-enabled"></mdui-switch>
             </div>
-            <mdui-text-field label="密码" type="password" id="webui-password" toggle-password></mdui-text-field>
+            <div id="config-port-error" class="field-error" role="alert"></div>
+            <mdui-text-field label="WebUI 密钥" type="password" id="webui-password" help-text="留空保留原值" toggle-password></mdui-text-field>
         </mdui-card>
 
         <!-- 插件市场配置 -->
@@ -599,13 +585,27 @@ async function renderConfig(container) {
     `;
 
     await loadConfig();
+    if (epoch !== pageEpoch) return;
 
     document.getElementById('add-bot-btn').addEventListener('click', addBotConfig);
     document.getElementById('config-save').addEventListener('click', saveConfig);
-    document.getElementById('config-reload').addEventListener('click', loadConfig);
+    pageScope.dirty = () => Boolean(configBaseline && configDraft() !== configBaseline);
+    document.getElementById('config-reload').addEventListener('click', async () => {if (await AdminUI.mayLeave()) loadConfig();});
 }
 
 let configData = null;
+let configBaseline = '';
+function renderConfigPreview() {
+    const safe = JSON.parse(JSON.stringify(configData));
+    if (safe.webui) safe.webui.password = '';
+    for (const bot of safe.bots || []) bot.app_secret = '';
+    document.getElementById('config-textarea').value = JSON.stringify(safe, null, 2);
+}
+function configDraft() {
+    const root = document.getElementById('config-textarea')?.closest('.page-content');
+    if (!root) return '';
+    return JSON.stringify([...root.querySelectorAll('mdui-text-field, mdui-select, mdui-switch, textarea')].map(node => [node.id || node.className, node.value, node.checked]));
+}
 
 async function loadConfig() {
     try {
@@ -617,7 +617,7 @@ async function loadConfig() {
             const webui = configData.webui || {};
             document.getElementById('webui-port').value = webui.port || 4545;
             document.getElementById('webui-enabled').checked = webui.enabled !== false;
-            document.getElementById('webui-password').value = webui.password || '';
+            document.getElementById('webui-password').value = '';
 
             // 填充插件市场配置
             const marketApiInput = document.getElementById('market-api');
@@ -638,10 +638,13 @@ async function loadConfig() {
             renderBotsConfigList();
 
             // 填充原始 JSON
-            document.getElementById('config-textarea').value = JSON.stringify(configData, null, 2);
+            renderConfigPreview();
+            configBaseline = configDraft();
+            AdminUI.notice(document.getElementById('config-feedback'), '');
         }
     } catch (e) {
-        showSnackbar('加载配置失败: ' + e.message);
+        if (e.name === 'AbortError') return;
+        const host = document.getElementById('config-feedback'); if (host) AdminUI.notice(host, '配置加载失败：' + e.message, 'error');
     }
 }
 
@@ -650,7 +653,7 @@ function renderBotsConfigList() {
     const bots = configData.bots || [];
 
     if (bots.length === 0) {
-        listEl.innerHTML = '<div style="padding:16px;color:var(--mdui-color-on-surface-variant)">暂无机器人配置</div>';
+        listEl.innerHTML = '<div style="padding:16px;color:rgb(var(--mdui-color-on-surface-variant))">暂无机器人配置</div>';
         return;
     }
 
@@ -661,9 +664,9 @@ function renderBotsConfigList() {
                 <mdui-text-field label="ID" value="${escapeHtml(bot.id)}" class="bot-config-id" readonly></mdui-text-field>
                 <mdui-text-field label="名称" value="${escapeHtml(bot.name)}" class="bot-config-name"></mdui-text-field>
                 <mdui-text-field label="AppID" value="${escapeHtml(bot.app_id)}" class="bot-config-appid"></mdui-text-field>
-                <mdui-text-field label="AppSecret" value="" type="password" toggle-password class="bot-config-appsecret"></mdui-text-field>
+                <mdui-text-field label="AppSecret" value="" type="password" toggle-password help-text="留空保留原值" class="bot-config-appsecret"></mdui-text-field>
                 <div style="display:flex;flex-direction:column;gap:8px">
-                    <label style="font-size:14px;color:var(--mdui-color-on-surface-variant)">连接模式</label>
+                    <label style="font-size:14px;color:rgb(var(--mdui-color-on-surface-variant))">连接模式</label>
                     <mdui-select value="${bot.mode || 'webhook'}" class="bot-config-mode">
                         <mdui-menu-item value="websocket">WebSocket</mdui-menu-item>
                         <mdui-menu-item value="webhook">Webhook</mdui-menu-item>
@@ -703,6 +706,17 @@ function addBotConfig() {
 }
 
 async function saveConfig() {
+    const scope = pageScope;
+    if (!configData || scope.busy) return;
+    const root = scope.container;
+    const port = document.getElementById('webui-port');
+    const portError = document.getElementById('config-port-error');
+    const value = Number(port.value);
+    port.error = !Number.isInteger(value) || value < 1 || value > 65535;
+    portError.textContent = port.error ? '端口须为 1–65535 的整数' : '';
+    if (port.error) {port.focus();return;}
+    scope.busy = true;
+    AdminUI.controlsBusy(root, true);
     try {
         // 更新 configData
         configData.webui = {
@@ -743,23 +757,31 @@ async function saveConfig() {
         });
 
         // 更新原始 JSON
-        document.getElementById('config-textarea').value = JSON.stringify(configData, null, 2);
+        renderConfigPreview();
 
         // 保存到服务器
         const data = await apiPut('/api/config', configData);
         if (data.code === 0) {
-            showSnackbar('配置保存成功');
+            configBaseline = configDraft();
+            document.getElementById('webui-password').value = '';
+            document.querySelectorAll('.bot-config-appsecret').forEach(node => {node.value = '';});
+            configData.webui.password = '';
+            for (const bot of configData.bots || []) bot.app_secret = '';
+            renderConfigPreview(); configBaseline = configDraft();
+            showSnackbar('已保存');
         } else {
             showSnackbar('保存失败: ' + data.message);
         }
     } catch (e) {
-        showSnackbar('保存失败: ' + e.message);
-    }
+        if (e.name === 'AbortError') return;
+        AdminUI.notice(document.getElementById('config-feedback'), '保存失败：' + e.message, 'error');
+    } finally {scope.busy = false; if (scope.current()) AdminUI.controlsBusy(root, false);}
 }
 
 // ==================== 关于页 ====================
 // ==================== 用户管理页 ====================
 async function renderUsers(container) {
+    const epoch = pageEpoch;
     container.innerHTML = `
         <div class="page-title">用户管理</div>
         <mdui-card variant="outlined" class="config-card">
@@ -772,6 +794,7 @@ async function renderUsers(container) {
     `;
 
     await loadUsers();
+    if (epoch !== pageEpoch) return;
     document.getElementById('add-user-btn').addEventListener('click', showAddUserDialog);
 }
 
@@ -785,28 +808,29 @@ async function loadUsers() {
             renderUsersList();
         } else {
             document.getElementById('users-list').innerHTML = 
-                '<div style="padding:16px;color:var(--mdui-color-error)">' + escapeHtml(data.message) + '</div>';
+                '<div style="padding:16px;color:rgb(var(--mdui-color-error))">' + escapeHtml(data.message) + '</div>';
         }
     } catch (e) {
+        if (e.name === 'AbortError') return;
         document.getElementById('users-list').innerHTML = 
-            '<div style="padding:16px;color:var(--mdui-color-error)">加载失败: ' + escapeHtml(e.message) + '</div>';
+            '<div style="padding:16px;color:rgb(var(--mdui-color-error))">加载失败: ' + escapeHtml(e.message) + '</div>';
     }
 }
 
 function renderUsersList() {
     const listEl = document.getElementById('users-list');
     if (usersList.length === 0) {
-        listEl.innerHTML = '<div style="padding:16px;color:var(--mdui-color-on-surface-variant)">暂无用户</div>';
+        listEl.innerHTML = '<div style="padding:16px;color:rgb(var(--mdui-color-on-surface-variant))">暂无用户</div>';
         return;
     }
 
     listEl.innerHTML = usersList.map(user => `
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--mdui-color-surface-variant)">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid rgb(var(--mdui-color-surface-variant))">
             <div style="display:flex;align-items:center;gap:12px">
-                <mdui-icon name="person" style="font-size:24px;color:var(--mdui-color-primary)"></mdui-icon>
+                <mdui-icon name="person" style="font-size:24px;color:rgb(var(--mdui-color-primary))"></mdui-icon>
                 <div>
                     <div style="font-weight:500">${escapeHtml(user.username)}</div>
-                    <div style="font-size:12px;color:var(--mdui-color-on-surface-variant)">
+                    <div style="font-size:12px;color:rgb(var(--mdui-color-on-surface-variant))">
                         ${user.is_admin ? '管理员' : '普通用户'}
                     </div>
                 </div>
@@ -859,6 +883,7 @@ function showAddUserDialog() {
                             return false;
                         }
                     } catch (e) {
+        if (e.name === 'AbortError') return;
                         showSnackbar('添加失败: ' + e.message);
                         return false;
                     }
@@ -898,6 +923,7 @@ function showChangePasswordDialog(username) {
                             return false;
                         }
                     } catch (e) {
+        if (e.name === 'AbortError') return;
                         showSnackbar('修改失败: ' + e.message);
                         return false;
                     }
@@ -928,6 +954,7 @@ async function deleteUser(username) {
             showSnackbar(data.message || '删除失败');
         }
     } catch (e) {
+        if (e.name === 'AbortError') return;
         showSnackbar('删除失败: ' + e.message);
     }
 }
@@ -938,7 +965,7 @@ function renderAbout(container) {
         <div class="about-container">
             <mdui-card variant="outlined" class="about-card">
                 <div class="about-logo">
-                    <mdui-icon name="smart_toy" style="font-size:48px;color:var(--mdui-color-primary)"></mdui-icon>
+                    <mdui-icon name="smart_toy" style="font-size:48px;color:rgb(var(--mdui-color-primary))"></mdui-icon>
                 </div>
                 <div class="about-title">ShizukuBot</div>
                 <div class="about-subtitle">QQ 机器人管理后台</div>
@@ -993,24 +1020,27 @@ async function loadAllPlugins() {
         const data = await apiGet('/api/plugins');
         allPluginsCache = (data.code === 0 ? data.data : data) || [];
     } catch (e) {
+        if (e.name === 'AbortError') return;
         allPluginsCache = [];
     }
     return allPluginsCache;
 }
 
 async function renderBots(container) {
+    const epoch = pageEpoch;
     container.innerHTML = `
         <div class="page-title">
             机器人管理            <mdui-button variant="filled" icon="add" id="add-bot-btn" style="float:right">添加机器人</mdui-button>
         </div>
         <div id="bots-manage-list" style="display:flex;flex-direction:column;gap:16px">
-            <div style="text-align:center;color:var(--mdui-color-on-surface-variant);padding:40px 0">加载中...</div>
+            <div style="text-align:center;color:rgb(var(--mdui-color-on-surface-variant));padding:40px 0">加载中...</div>
         </div>
     `;
 
     document.getElementById('add-bot-btn')?.addEventListener('click', () => showBotDialog(null, container));
 
     await loadAllPlugins();
+    if (epoch !== pageEpoch) return;
     await loadBotsManageList(container);
 }
 
@@ -1023,23 +1053,33 @@ async function loadBotsManageList(container) {
         const bots = (data.code === 0 ? data.data : data) || [];
 
         if (bots.length === 0) {
-            listEl.innerHTML = '<div style="text-align:center;color:var(--mdui-color-on-surface-variant);padding:40px 0">暂无机器人，点击右上角添加</div>';
+            listEl.innerHTML = '<div style="text-align:center;color:rgb(var(--mdui-color-on-surface-variant));padding:40px 0">暂无机器人，点击右上角添加</div>';
             return;
         }
 
+        const expanded = new Map([...listEl.querySelectorAll('.bot-card')].map(card => [card.dataset.botId, [...card.querySelectorAll('details')].map(details => details.open)]));
         listEl.innerHTML = bots.map(bot => renderBotCard(bot)).join('');
+        for (const card of listEl.querySelectorAll('.bot-card')) {
+            const opened = expanded.get(card.dataset.botId) || [];
+            [...card.querySelectorAll('details')].forEach((details, index) => {details.open = Boolean(opened[index]);});
+        }
 
         // 绑定按钮事件
         listEl.querySelectorAll('[data-action]').forEach(btn => {
             btn.addEventListener('click', async () => {
                 const id = btn.dataset.id;
                 const action = btn.dataset.action;
-                btn.loading = true;
+                if (btn.loading) return;
+                btn.loading = true; btn.disabled = true;
                 try {
                     if (action === 'start') {
                         await apiPost(`/api/bots/${id}/start`, {});
+                        showSnackbar('已启动');
+                        await loadBotsManageList(container);
                     } else if (action === 'stop') {
                         await apiPost(`/api/bots/${id}/stop`, {});
+                        showSnackbar('已停止');
+                        await loadBotsManageList(container);
                     } else if (action === 'edit') {
                         showBotDialog(id, container);
                     } else if (action === 'plugins') {
@@ -1061,13 +1101,15 @@ async function loadBotsManageList(container) {
                         }
                     }
                 } catch (e) {
+        if (e.name === 'AbortError') return;
                     showSnackbar('操作失败: ' + e.message);
                 }
-                btn.loading = false;
+                btn.loading = false; btn.disabled = false;
             });
         });
     } catch (e) {
-        listEl.innerHTML = '<div style="text-align:center;color:var(--mdui-color-error);padding:40px 0">加载失败: ' + escapeHtml(e.message) + '</div>';
+        if (e.name === 'AbortError') return;
+        listEl.innerHTML = '<div style="text-align:center;color:rgb(var(--mdui-color-error));padding:40px 0">加载失败: ' + escapeHtml(e.message) + '</div>';
     }
 }
 
@@ -1119,28 +1161,28 @@ function renderBotCard(bot) {
     const prefix = bot.command_prefix || '/';
 
     return `
-        <mdui-card variant="outlined" style="padding:16px">
+        <mdui-card variant="outlined" class="bot-card" data-bot-id="${escapeHtml(bot.id)}" style="padding:16px">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
-                <div style="flex:1;min-width:250px">
-                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                <div class="bot-card-info" style="flex:1;min-width:250px">
+                    <div class="bot-card-header" style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
                         <span class="bot-status-dot" style="background:${statusColor}"></span>
                         <span style="font-size:18px;font-weight:500">${escapeHtml(bot.name || bot.id)}</span>
                         <span class="bot-mode" style="color:${modeColor};font-size:13px">${modeText}</span>
-                        <span style="font-size:13px;color:var(--mdui-color-on-surface-variant)">${statusText}</span>
+                        <span style="font-size:13px;color:rgb(var(--mdui-color-on-surface-variant))">${statusText}</span>
                     </div>
-                    <div style="color:var(--mdui-color-on-surface-variant);font-size:13px;line-height:1.8">
+                    <div style="color:rgb(var(--mdui-color-on-surface-variant));font-size:13px;line-height:1.8">
                         <div>ID: ${escapeHtml(bot.id)}</div>
                         <div>AppID: ${escapeHtml(bot.app_id)}</div>
-                        <div>指令前缀: <code style="background:var(--mdui-color-surface-variant);padding:2px 6px;border-radius:4px">${escapeHtml(prefix)}</code></div>
+                        <div>指令前缀: <code style="background:rgb(var(--mdui-color-surface-variant));padding:2px 6px;border-radius:4px">${escapeHtml(prefix)}</code></div>
                         <div>装载插件: ${pluginCount}${pluginCount !== '全部' ? ' 个' : ''}</div>
                     </div>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap">
-                    <mdui-button variant="${btnVariant}" icon="${btnIcon}" data-action="${btnAction}" data-id="${bot.id}">${btnText}</mdui-button>
-                    <mdui-button variant="outlined" icon="extension" data-action="plugins" data-id="${bot.id}">插件</mdui-button>
-                    <mdui-button variant="outlined" icon="tune" data-action="config" data-id="${bot.id}">配置</mdui-button>
-                    <mdui-button variant="outlined" icon="edit" data-action="edit" data-id="${bot.id}">编辑</mdui-button>
-                    <mdui-button-icon icon="delete" data-action="delete" data-id="${bot.id}" style="color:var(--mdui-color-error)"></mdui-button-icon>
+                    <mdui-button variant="${btnVariant}" icon="${btnIcon}" data-action="${btnAction}" data-id="${escapeHtml(bot.id)}">${btnText}</mdui-button>
+                    <mdui-button variant="outlined" icon="extension" data-action="plugins" data-id="${escapeHtml(bot.id)}">插件</mdui-button>
+                    <mdui-button variant="outlined" icon="tune" data-action="config" data-id="${escapeHtml(bot.id)}">配置</mdui-button>
+                    <mdui-button variant="outlined" icon="edit" data-action="edit" data-id="${escapeHtml(bot.id)}">编辑</mdui-button>
+                    <mdui-button-icon icon="delete" data-action="delete" data-id="${escapeHtml(bot.id)}" style="color:rgb(var(--mdui-color-error))"></mdui-button-icon>
                 </div>
             </div>
             ${renderQQDiagnostics(bot)}
@@ -1158,7 +1200,7 @@ function showBotDialog(botId, container) {
         data.then(d => {
             const b = (d.code === 0 ? d.data : d);
             renderForm(b || bot);
-        });
+        }).catch(error => {if (error.name !== 'AbortError') showSnackbar('加载失败：' + error.message);});
     } else {
         renderForm(bot);
     }
@@ -1206,6 +1248,7 @@ function showBotDialog(botId, container) {
                             await loadBotsManageList(container);
                             showSnackbar(isEdit ? '已更新' : '已添加');
                         } catch (e) {
+        if (e.name === 'AbortError') return;
                             showSnackbar('保存失败: ' + e.message);
                             return false;
                         }
@@ -1227,11 +1270,11 @@ function showBotPluginsDialog(botId, container) {
             headline: '配置 ' + escapeHtml(bot.name || botId) + ' 的插件',
             body: `
                 <div style="padding:8px 0">
-                    <div style="margin-bottom:12px;color:var(--mdui-color-on-surface-variant);font-size:13px">
+                    <div style="margin-bottom:12px;color:rgb(var(--mdui-color-on-surface-variant));font-size:13px">
                         勾选要装载的插件，不勾选任何插件则装载所有启用的插件
                     </div>
                     <div id="plugin-checkbox-list" style="display:flex;flex-direction:column;gap:4px;max-height:400px;overflow-y:auto">
-                        ${plugins.length === 0 ? '<div style="padding:20px;text-align:center;color:var(--mdui-color-on-surface-variant)">暂无插件</div>' :
+                        ${plugins.length === 0 ? '<div style="padding:20px;text-align:center;color:rgb(var(--mdui-color-on-surface-variant))">暂无插件</div>' :
                             plugins.map(p => `
                                 <mdui-checkbox ${selectedIds.has(p.id) ? 'checked' : ''} value="${escapeHtml(p.id)}" id="plugin-${escapeHtml(p.id)}">
                                     ${escapeHtml(p.name || p.id)}${p.enabled ? '' : ' (未启用)'}
@@ -1256,6 +1299,7 @@ function showBotPluginsDialog(botId, container) {
                             await loadBotsManageList(container);
                             showSnackbar('插件配置已保存');
                         } catch (e) {
+        if (e.name === 'AbortError') return;
                             showSnackbar('保存失败: ' + e.message);
                             return false;
                         }
@@ -1263,7 +1307,7 @@ function showBotPluginsDialog(botId, container) {
                 }
             ]
         });
-    });
+    }).catch(error => {if (error.name !== 'AbortError') showSnackbar('加载失败：' + error.message);});
 }
 
 // 机器人独立配置对话框
@@ -1293,6 +1337,7 @@ function showBotConfigDialog(botId, container) {
                             await loadBotsManageList(container);
                             showSnackbar('配置已保存');
                         } catch (e) {
+        if (e.name === 'AbortError') return;
                             showSnackbar('保存失败: ' + e.message);
                             return false;
                         }
@@ -1300,7 +1345,7 @@ function showBotConfigDialog(botId, container) {
                 }
             ]
         });
-    });
+    }).catch(error => {if (error.name !== 'AbortError') showSnackbar('加载失败：' + error.message);});
 }
 
 // ==================== 工具函数 ====================
@@ -1308,14 +1353,17 @@ function escapeHtml(text) {
     return String(text ?? '').replace(/[&<>"']/g, char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 }
 
+let resultSnackbar = null;
 function showSnackbar(message) {
-    if (window.mdui && mdui.snackbar) {
-        mdui.snackbar({ message: message });
-    } else if (window.mdui && mdui.alert) {
-        mdui.alert({ headline: '提示', description: message, confirmText: '确定' });
-    } else {
-        window.alert(message);
-    }
+    if (customElements.get('mdui-snackbar')) {
+        if (resultSnackbar) {resultSnackbar.open = false; resultSnackbar.remove();}
+        const snackbar = document.createElement('mdui-snackbar');
+        snackbar.textContent = String(message);
+        snackbar.autoCloseDelay = 3500;
+        snackbar.closeable = true;
+        snackbar.addEventListener('closed', () => {snackbar.remove(); if (resultSnackbar === snackbar) resultSnackbar = null;}, {once: true});
+        document.body.append(snackbar); resultSnackbar = snackbar; snackbar.open = true;
+    } else {window.alert(String(message));}
 }
 
 // ==================== 初始化 ====================
@@ -1356,6 +1404,8 @@ document.addEventListener('DOMContentLoaded', () => {
             await fetch('/logout', {method:'POST',headers:{'Content-Type':'application/json'}}); window.location.href = '/login';
         });
     }
+
+    window.addEventListener('hashchange', () => {const route = location.hash.slice(1) || '/stats'; if (route !== currentRoute) navigateTo(route);});
 
     // 根据hash路由初始化
     const hash = window.location.hash.replace('#', '') || '/stats';

@@ -34,7 +34,9 @@
         async function reload(checkDirty) {
             if (checkDirty && !await U.mayLeave()) return;
             const version = ++revision;
-            editor = null; plugins = []; list.replaceChildren(); detail.replaceChildren(U.text('p', '加载插件…'));
+            editor = null; sidebar.inert = detail.inert = true;
+            detail.setAttribute('aria-busy', 'true');
+            if (!plugins.length) detail.replaceChildren(U.text('p', '加载插件…'));
             U.notice(feedback, '加载插件…', 'loading');
             try {
                 const nextBots = await scope.request('/api/bots');
@@ -49,11 +51,11 @@
                 plugins = data;
                 U.notice(feedback, botId ? '' : '暂无机器人，请先添加。');
                 if (!plugins.some(plugin => plugin.id === selectedId)) selectedId = plugins[0]?.id || '';
-                editor = null; renderList(); renderDetail(); return true;
+                editor = null; renderList(); renderDetail(); sidebar.inert = detail.inert = false; detail.setAttribute('aria-busy', 'false'); return true;
             } catch (error) {
                 if (!scope.current() || version !== revision) return;
                 loadError = U.errorMessage(error); U.notice(feedback, loadError, 'error');
-                detail.replaceChildren(U.text('p', '无法加载插件，请重试。')); return false;
+                detail.inert = false; detail.setAttribute('aria-busy', 'false'); detail.replaceChildren(U.text('p', '无法加载插件，请重试。')); return false;
             }
         }
         function renderList() {
@@ -71,7 +73,7 @@
                 if (plugin.description) item.append(U.text('span', plugin.description, 'plugin-list-description'));
                 item.addEventListener('click', async () => {
                     if (plugin.id === selectedId || !await U.mayLeave()) return;
-                    selectedId = plugin.id; U.context.pluginId = selectedId; editor = null; renderList(); renderDetail();
+                    selectedId = plugin.id; U.context.pluginId = selectedId; editor = null; U.activateList(list, 'pluginId', selectedId); renderDetail();
                 });
                 list.append(item);
             }
@@ -119,6 +121,7 @@
             const file = U.el('input', {type: 'file', accept: '.json,application/json', id: 'plugin-restore-file', 'aria-label': '选择插件数据备份'});
             advanced.append(file, U.button('恢复数据备份', () => restore(file), 'plugin-restore'));
             detail.replaceChildren(U.text('h2', plugin.name), U.el('p', {text: plugin.description || '', hidden: !plugin.description}), overview, configHost, runtime, advanced);
+            U.enter(detail);
         }
         async function mutate(action, plugin) {
             if (scope.busy || !botId) return;

@@ -38,11 +38,38 @@
     function select(label, options, value, id) {
         return el('mdui-select', {label, id, value}, options.map(option => el('mdui-menu-item', {value: option.value, text: option.label})));
     }
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const motions = new Set();
+    const moving = new WeakMap();
+    function cancelMotion() { for (const animation of motions) animation.cancel(); motions.clear(); }
+    reducedMotion.addEventListener('change', () => {if (reducedMotion.matches) cancelMotion();});
+    function enter(node, page = false) {
+        moving.get(node)?.cancel();
+        if (!node?.isConnected || reducedMotion.matches || typeof node.animate !== 'function') return;
+        const style = getComputedStyle(document.documentElement);
+        const token = style.getPropertyValue(page ? '--mdui-motion-duration-medium1' : '--mdui-motion-duration-short3').trim();
+        const duration = token ? parseFloat(token) * (token.endsWith('ms') ? 1 : 1000) : (page ? 250 : 150);
+        const animation = node.animate([{opacity: .78, transform: `translateY(${page ? 6 : 3}px)`}, {opacity: 1, transform: 'none'}], {
+            duration, easing: style.getPropertyValue('--mdui-motion-easing-emphasized-decelerate').trim() || 'cubic-bezier(.05,.7,.1,1)',
+        });
+        moving.set(node, animation); motions.add(animation);
+        animation.finished.catch(() => {}).finally(() => {motions.delete(animation); if (moving.get(node) === animation) moving.delete(node);});
+        return animation;
+    }
+    function activateList(list, key, id) {
+        for (const item of list.children) if (item.dataset[key]) item.active = item.dataset[key] === id;
+    }
+    function reveal(node) { if (window.matchMedia('(max-width: 900px)').matches) node.scrollIntoView({block: 'start', behavior: reducedMotion.matches ? 'auto' : 'smooth'}); }
     function notice(host, message, kind = 'info') {
-        host.replaceChildren(); host.className = 'plugin-notice ' + kind;
+        host.replaceChildren(); host.className = '';
+        if (!message) return;
+        if (kind === 'success') {window.showSnackbar?.(message); return;}
+        // A loading button already identifies the in-flight operation.
+        if (kind === 'loading' && host.closest('.plugin-page-surface')?.querySelector('mdui-button[loading]')) return;
+        host.className = 'plugin-notice ' + kind;
         host.setAttribute('role', kind === 'error' ? 'alert' : 'status');
-        if (kind === 'loading') host.append(el('mdui-circular-progress', {class: 'plugin-spinner'}));
-        if (message) host.append(text('span', message)); else host.className = '';
+        if (kind === 'loading') host.append(el('mdui-circular-progress', {class: 'plugin-spinner', 'aria-label': '加载中'}));
+        host.append(text('span', message));
     }
     function help(label, paragraphs) {
         return el('details', {class: 'ui-help'}, [text('summary', label), ...paragraphs.map(value => text('p', value))]);
@@ -81,7 +108,7 @@
         scope.on(window, 'beforeunload', event => { if (scope.dirty()) {event.preventDefault(); event.returnValue = '';} });
         return scope;
     }
-    function dispose() { active?.controller.abort(); active = null; }
+    function dispose() { active?.controller.abort(); active = null; cancelMotion(); }
     async function confirmDiscard() {
         try { await mdui.confirm({headline: '有未保存的配置', description: '离开会放弃本次修改。', confirmText: '放弃修改', cancelText: '继续编辑'}); return true; }
         catch { return false; }
@@ -95,10 +122,20 @@
     }
     function controlsBusy(root, busy) {
         root.inert = busy;
+        root.setAttribute('aria-busy', String(busy));
+        if (busy) {
+            const trigger = document.activeElement?.closest('mdui-button, mdui-button-icon');
+            if (trigger && root.contains(trigger)) {root.dataset.busyButton = trigger.id; trigger.loading = true;}
+        }
         root.querySelectorAll('mdui-button, mdui-button-icon, mdui-select, mdui-text-field, mdui-switch, mdui-checkbox, textarea, input').forEach(control => {
-            if (busy) {control.dataset.wasDisabled = String(Boolean(control.disabled)); control.disabled = true;}
+            if (busy) {if (!Object.hasOwn(control.dataset, 'wasDisabled')) control.dataset.wasDisabled = String(Boolean(control.disabled)); control.disabled = true;}
             else if (Object.hasOwn(control.dataset, 'wasDisabled')) {control.disabled = control.dataset.wasDisabled === 'true'; delete control.dataset.wasDisabled;}
         });
+        if (!busy && root.dataset.busyButton) {
+            const trigger = document.getElementById(root.dataset.busyButton);
+            if (trigger && root.contains(trigger)) {trigger.loading = false; trigger.focus({preventScroll: true});}
+            delete root.dataset.busyButton;
+        }
     }
     function errorDetails(message) {
         const details = el('details', {class: 'plugin-error-details'}, [text('summary', String(message).slice(0, 180)), text('pre', message)]);
@@ -119,6 +156,6 @@
     }
     // Neutral page helpers share lifecycle guards without exposing plugin selection state.
     window.AdminUI = {el, text, clone, canonical, button, select, notice, request, begin, dispose, mayLeave,
-        controlsBusy, errorMessage, errorDetails, help};
+        controlsBusy, errorMessage, errorDetails, help, enter, activateList, reveal};
     window.PluginUI = {...window.AdminUI, JSONEditor, context, openSandbox};
 })();

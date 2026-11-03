@@ -37,8 +37,8 @@
         async function load(checkDirty) {
             if (checkDirty && !await U.mayLeave()) return;
             const token = ++generation;
-            draft = null; set = null; isNew = false; create.disabled = true; list.replaceChildren();
-            detail.replaceChildren(U.text('p', '正在加载规则…')); U.notice(feedback, '正在加载规则…', 'loading');
+            draft = null; isNew = false; create.disabled = true; sidebar.inert = detail.inert = true;
+            if (!set) detail.replaceChildren(U.text('p', '正在加载规则…')); U.notice(feedback, '正在加载规则…', 'loading');
             try {
                 const bots = (await scope.request('/api/bots')).sort((a, b) => a.id.localeCompare(b.id));
                 if (!scope.current() || token !== generation) return;
@@ -46,16 +46,16 @@
                 botSelect.replaceChildren(...bots.map(bot => U.el('mdui-menu-item', {value: bot.id, text: `${bot.name || bot.id} · ${bot.id}`})));
                 botSelect.value = botId; botSelect.disabled = !botId;
                 if (!botId) {
-                    detail.replaceChildren(U.text('p', '请先添加机器人。'));
+                    detail.inert = false; list.replaceChildren(); detail.replaceChildren(U.text('p', '请先添加机器人。'));
                     U.notice(feedback, '暂无机器人，请先添加。'); return;
                 }
                 const next = await scope.request(path());
                 if (!scope.current() || token !== generation) return;
-                apply(next, selectedId); U.notice(feedback, '');
+                apply(next, selectedId); sidebar.inert = detail.inert = false; U.notice(feedback, '');
             } catch (error) {
                 if (!scope.current() || token !== generation) return;
                 U.notice(feedback, U.errorMessage(error), 'error');
-                detail.replaceChildren(U.text('p', '无法加载规则，请刷新重试。'));
+                detail.inert = false; detail.replaceChildren(U.text('p', '无法加载规则，请刷新重试。'));
             }
         }
         function apply(next, prefer) {
@@ -80,7 +80,7 @@
                 item.append(U.text('span', rule.name));
                 scope.on(item, 'click', async () => {
                     if (rule.id === selectedId || !await U.mayLeave()) return;
-                    selectRule(rule); renderList(); detail.scrollIntoView({block: 'start', behavior: 'smooth'});
+                    selectRule(rule); U.activateList(list, 'ruleId', selectedId); U.reveal(detail);
                 }); list.append(item);
             }
             if (!visible.length) list.append(U.text('p', set?.rules.length ? '没有匹配的规则。' : '暂无规则，点击“新建规则”添加。', 'plugin-empty'));
@@ -94,7 +94,7 @@
                 trigger: {type: 'contains', value: ''}, conditions: {sources: ['group', 'c2c'], group_ids: []},
                 action: {type: 'reply_text', text: ''}, stop_on_match: true};
             selectedId = draft.id; isNew = true; baseline = ''; renderList(); renderDetail();
-            detail.scrollIntoView({block: 'start', behavior: 'smooth'});
+            U.reveal(detail);
         }
         function dirtyLabel() {const host = detail.querySelector('#rules-dirty'); if (host) host.textContent = scope.dirty() ? '有未保存的修改' : '已保存';}
         function field(id, label, value, change, attributes = {}) {
@@ -129,7 +129,7 @@
                     reply, U.text('p', '占位符：{用户ID}、{群ID}、{BotID}、{消息内容}；展开上限 8192 字节。', 'plugin-muted'),
                     priority, U.text('p', '同优先级按 ID 排序；每条消息最多尝试回复 3 次。', 'plugin-muted'),
                     U.el('label', {class: 'rules-switch-label'}, [enabled, U.text('span', '启用（保存后生效）')]), stop]), actions, testPanel());
-            dirtyLabel();
+            dirtyLabel(); U.enter(detail);
         }
         function proposed(temporaryEnable = false) {
             if (!draft.name.trim()) throw Error('请填写规则名称。');
@@ -195,6 +195,7 @@
                         output.append(card);
                     }
                     if (!result.traces.length) output.append(U.text('p', '暂无规则。'));
+                    U.enter(output);
                 } catch (error) {if (scope.current()) U.notice(output, U.errorMessage(error), 'error');}
                 finally {scope.busy = false; if (scope.current()) U.controlsBusy(container, false);}
             };

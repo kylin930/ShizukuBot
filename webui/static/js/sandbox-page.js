@@ -83,10 +83,15 @@
             } catch (error) {if (scope.current() && version === revision) U.notice(feedback, U.errorMessage(error), 'error');}
         }
         function renderTurns() {
-            chat.replaceChildren();
+            const wanted = new Set(turns.map(turn => turn.node).filter(Boolean));
+            for (const child of [...chat.children]) if (!wanted.has(child)) child.remove();
             if (!turns.length) chat.append(U.text('p', '输入消息开始测试。', 'plugin-empty'));
             for (const turn of turns) {
-                const block = U.el('section', {class: 'sandbox-turn'});
+                const state = turn.pending ? 'pending' : (turn.data || turn.error);
+                if (turn.node && turn.renderedState === state) continue;
+                const fresh = !turn.node;
+                const block = turn.node || U.el('section', {class: 'sandbox-turn'});
+                turn.node = block; turn.renderedState = state; block.replaceChildren();
                 block.append(U.text('div', `${turn.independent ? '独立调试' : 'Bot'} ${turn.botId} · ${turn.type === 'group' ? '群聊' : 'C2C'} · ${turn.pluginId || '全部启用插件'}`, 'plugin-muted'),
                     U.text('div', turn.content, 'sandbox-request'));
                 if (turn.pending) block.append(U.text('p', '正在执行…'));
@@ -100,7 +105,8 @@
                     block.append(U.text('small', `本次请求耗时 ${turn.elapsed.toFixed(1)} ms`, 'plugin-muted'));
                 }
                 if (turn.error) block.append(U.errorDetails(turn.error));
-                chat.append(block);
+                if (fresh) chat.append(block);
+                U.enter(fresh ? block : (block.querySelector('.sandbox-reply') || block));
             }
             chat.scrollTop = chat.scrollHeight;
         }
