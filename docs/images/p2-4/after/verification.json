@@ -1,0 +1,19 @@
+{
+  "entry": {
+    "immediate": true,
+    "count": 1,
+    "duration": 250,
+    "opacity": 0.78,
+    "oldCanceled": true
+  },
+  "rapidRoutes": 21,
+  "retainedViews": 1,
+  "reduced": {
+    "page": 0,
+    "detail": 0,
+    "button": "0s",
+    "list": "0s",
+    "card": "0s",
+    "foreground": "1"
+  }
+}

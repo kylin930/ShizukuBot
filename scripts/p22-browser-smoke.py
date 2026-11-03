@@ -30,7 +30,7 @@ async def check(base, password, artifacts, chromium):
         async def value(selector, expected):
             await page.wait_for_function('([s,v])=>document.querySelector(s)?.value===v', arg=[selector, expected])
         async def feedback(text):
-            await page.wait_for_function('(text)=>document.querySelector("#rules-feedback")?.textContent.includes(text)', arg=text)
+            await page.wait_for_function('(text)=>document.querySelector("#rules-feedback")?.textContent.includes(text)||[...document.querySelectorAll("mdui-snackbar[open]")].some(n=>n.textContent.includes(text))', arg=text)
         async def navigate(route):
             assert await page.evaluate('(r)=>navigateTo(r)', route)
         async def saved(bot):
@@ -59,12 +59,12 @@ async def check(base, password, artifacts, chromium):
         assert '草稿' in await page.locator('#rules-test-result').inner_text()
         assert not (await saved('alpha'))['rules'], 'Preview saved production data'
         await page.locator('#rule-save').click()
-        await feedback('保持禁用')
+        await feedback('未启用')
         data = await saved('alpha'); rule_id = data['rules'][0]['id']
         assert data['revision'] == 1 and data['rules'][0]['enabled'] is False
         assert '问候回复' in await page.locator('[data-rule-id]').inner_text(), 'Rule name missing from MDUI default slot'
         await page.locator('#rule-toggle').click()
-        await feedback('规则已启用')
+        await feedback('已启用')
         assert (await saved('alpha'))['rules'][0]['enabled'] is True
         await fill('#rule-test-message', '你好')
         await fill('#rule-test-group', 'group-a')
@@ -85,9 +85,9 @@ async def check(base, password, artifacts, chromium):
         # Real mobile operations, including editing and switching Bot.
         await fill('#rule-name', '手机编辑的问候')
         await fill('#rule-reply', '手机回复')
-        await page.locator('#rule-save').click(); await feedback('立即启用')
+        await page.locator('#rule-save').click(); await feedback('已保存并启用')
         assert (await saved('alpha'))['rules'][0]['action']['text'] == '手机回复'
-        await page.locator('#rule-toggle').click(); await feedback('规则已禁用')
+        await page.locator('#rule-toggle').click(); await feedback('已禁用')
         await select('#rules-bot-select', 'beta')
         await page.wait_for_function('document.querySelector("#rules-list").textContent.includes("暂无规则")')
         await page.locator('#rules-new').click()
@@ -96,11 +96,11 @@ async def check(base, password, artifacts, chromium):
         await fill('#rule-keyword', '菜单 ')
         await select('#rule-source', 'c2c')
         await fill('#rule-reply', 'Beta 回复')
-        await page.locator('#rule-save').click(); await feedback('保持禁用')
+        await page.locator('#rule-save').click(); await feedback('未启用')
         assert (await saved('beta'))['rules'][0]['trigger']['value'] == '菜单 ', 'Whitespace was altered'
         assert (await saved('alpha'))['rules'][0]['name'] == '手机编辑的问候'
         await select('#rules-filter', 'enabled')
-        await page.wait_for_function('document.querySelector("#rules-list").textContent.includes("没有符合")')
+        await page.wait_for_function('document.querySelector("#rules-list").textContent.includes("没有匹配")')
         await select('#rules-filter', 'all')
         await fill('#rules-search', 'missing')
         assert await page.locator('[data-rule-id]').count() == 0
@@ -142,7 +142,7 @@ async def check(base, password, artifacts, chromium):
         # Actual stored hostile strings must remain text in both MDUI and traces.
         hostile = '<img src=x onerror="window.__rulesxss=1">'
         await fill('#rule-name', hostile); await fill('#rule-keyword', hostile); await fill('#rule-reply', hostile)
-        await page.locator('#rule-save').click(); await feedback('保持禁用')
+        await page.locator('#rule-save').click(); await feedback('未启用')
         await fill('#rule-test-message', hostile); await fill('#rule-test-group', 'group-a')
         await page.locator('#rule-test-draft').click()
         await page.wait_for_function('document.querySelector("#rules-test-result pre")')
@@ -150,7 +150,7 @@ async def check(base, password, artifacts, chromium):
         assert await page.evaluate('!window.__rulesxss && !document.querySelector(".rules-page img,.rules-page script")')
         assert await page.locator('[data-rule-id="' + rule_id + '"]').evaluate('(n)=>!n.shadowRoot.querySelector("img,script")')
         await fill('#rule-name', '问候回复'); await fill('#rule-keyword', '你好'); await fill('#rule-reply', '你好！')
-        await page.locator('#rule-save').click(); await feedback('保持禁用')
+        await page.locator('#rule-save').click(); await feedback('未启用')
         await select('#rule-test-source', 'c2c'); await fill('#rule-test-message', '/help')
         await page.locator('#rule-test-draft').click()
         await page.wait_for_function('document.querySelector("#rules-test-result").textContent.includes("内置命令优先")')
@@ -172,7 +172,7 @@ async def check(base, password, artifacts, chromium):
         await page.unroute('**/api/bots/alpha/rules', forbidden)
         async def no_bots(route): await route.fulfill(json={'code': 0, 'data': []})
         await page.route('**/api/bots', no_bots)
-        await page.locator('#rules-refresh').click(); await feedback('尚无机器人')
+        await page.locator('#rules-refresh').click(); await feedback('暂无机器人')
         assert await page.locator('#rules-new').evaluate('(n)=>n.disabled')
         await page.unroute('**/api/bots', no_bots)
         assert not errors, errors[:3]

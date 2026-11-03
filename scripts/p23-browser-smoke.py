@@ -19,8 +19,9 @@ async def check(base, password, artifacts, chromium):
         await page.wait_for_selector('.qq-diagnostics')
         assert await page.evaluate('Boolean(customElements.get("mdui-card"))')
         await page.locator('.qq-diagnostics summary').first.click()
+        await page.locator('.qq-diagnostics').first.get_by_text('接入帮助', exact=True).click()
         text = await page.locator('.qq-diagnostics').first.inner_text()
-        assert '尚未验证' in text and 'QQ 客户端送达需人工验收' in text
+        assert '暂无记录' in text and '平台接受不等于 QQ 客户端送达' in text
         assert '本地沙盒回复成功' not in text
         await page.screenshot(path=str(artifacts/'qq-diagnostics-desktop.png'), full_page=True)
         await page.set_viewport_size({'width':390,'height':844})

@@ -1,44 +1,20 @@
 /* ShizukuBot WebUI 样式 - MDUI2 */
 
 /* 页面背景 */
-html, body {
-    height: 100%;
-    margin: 0;
-    padding: 0;
-}
-
-body {
-    background-image: url('https://teachermate.oss-cn-qingdao.aliyuncs.com/vokMW-1750340487715-nekoaft_N02_a.png');
-    background-size: cover;
-    background-position: center;
-    background-attachment: fixed;
-    background-repeat: no-repeat;
-}
+html, body {height:100%;margin:0;padding:0;}
+body {isolation:isolate;}
+/* The original image uses an explicit no-referrer request to avoid hotlink rejection. */
+.page-background { position:fixed; inset:0; width:100%; height:100%; object-fit:cover; z-index:-1; pointer-events:none; }
 
 mdui-layout {
     background-color: transparent;
 }
 
-/* 半透明效果 */
-mdui-card {
-    opacity: 0.8;
-}
-
-mdui-top-app-bar {
-    opacity: 0.9;
-}
-
-mdui-navigation-rail {
-    opacity: 0.8;
-}
-
-mdui-navigation-drawer {
-    opacity: 0.9;
-}
-
-mdui-list {
-    --mdui-color-surface: transparent;
-}
+/* Translucent surfaces keep foreground text/icons fully opaque. */
+mdui-card { background-color: rgba(var(--mdui-color-surface), .93); }
+mdui-top-app-bar { background-color: rgba(var(--mdui-color-surface), .96); }
+mdui-navigation-rail { background-color: rgba(var(--mdui-color-surface), .92); }
+mdui-navigation-drawer { background-color: rgba(var(--mdui-color-surface), .98); }
 
 /* 响应式导航：桌面端用 NavigationRail，移动端用 NavigationDrawer */
 .desktop-nav {
@@ -72,12 +48,12 @@ mdui-list {
 .drawer-title {
     font-size: 20px;
     font-weight: 600;
-    color: var(--mdui-color-on-surface);
+    color: rgb(var(--mdui-color-on-surface));
 }
 
 .drawer-subtitle {
     font-size: 12px;
-    color: var(--mdui-color-on-surface-variant);
+    color: rgb(var(--mdui-color-on-surface-variant));
 }
 
 /* 导航项 */
@@ -85,30 +61,15 @@ mdui-list {
     cursor: pointer;
 }
 
-/* 页面切换动画 */
-.page-content {
-    padding: 16px;
-    background-color: transparent;
-    transition: opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1), 
-                transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.page-content.fade-out {
-    opacity: 0;
-    transform: translateX(20px);
-}
-
-.page-content.fade-in {
-    opacity: 1;
-    transform: translateX(0);
-}
+/* Entry motion is optional and never hides the resting page. */
+.page-content { padding:16px; background:transparent; min-width:0; box-sizing:border-box; }
 
 /* 页面标题 */
 .page-title {
     font-size: 24px;
     font-weight: 500;
     margin-bottom: 24px;
-    color: var(--mdui-color-on-surface);
+    color: rgb(var(--mdui-color-on-surface));
 }
 
 /* 统计卡片网格 */
@@ -122,7 +83,7 @@ mdui-list {
     align-items: center;
     justify-content: space-between;
     padding: 12px 0;
-    border-bottom: 1px solid var(--mdui-color-surface-variant);
+    border-bottom: 1px solid rgb(var(--mdui-color-surface-variant));
 }
 
 .bot-item:last-child {
@@ -151,12 +112,12 @@ mdui-list {
 .bot-item-name {
     font-size: 15px;
     font-weight: 500;
-    color: var(--mdui-color-on-surface);
+    color: rgb(var(--mdui-color-on-surface));
 }
 
 .bot-item-meta {
     font-size: 12px;
-    color: var(--mdui-color-on-surface-variant);
+    color: rgb(var(--mdui-color-on-surface-variant));
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -188,7 +149,7 @@ mdui-list {
 
 .stat-card-label {
     font-size: 14px;
-    color: var(--mdui-color-on-surface-variant);
+    color: rgb(var(--mdui-color-on-surface-variant));
     display: flex;
     align-items: center;
     gap: 8px;
@@ -197,7 +158,7 @@ mdui-list {
 .stat-card-value {
     font-size: 36px;
     font-weight: 700;
-    color: var(--mdui-color-primary);
+    color: rgb(var(--mdui-color-primary));
 }
 
 /* 图表区域 */
@@ -251,7 +212,7 @@ mdui-list {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    border-bottom: 1px solid var(--mdui-color-surface-variant);
+    border-bottom: 1px solid rgb(var(--mdui-color-surface-variant));
 }
 
 .log-card-title {
@@ -277,7 +238,7 @@ mdui-list {
 }
 
 .log-time {
-    color: var(--mdui-color-on-surface-variant);
+    color: rgb(var(--mdui-color-on-surface-variant));
     white-space: nowrap;
 }
 
@@ -293,7 +254,7 @@ mdui-list {
 .log-level-error { color: #d32f2f; }
 
 .log-message {
-    color: var(--mdui-color-on-surface);
+    color: rgb(var(--mdui-color-on-surface));
     word-break: break-all;
 }
 
@@ -338,7 +299,7 @@ mdui-list {
 }
 
 .response-pre {
-    background-color: var(--mdui-color-surface-container-high);
+    background-color: rgb(var(--mdui-color-surface-container-high));
     padding: 16px;
     border-radius: 8px;
     max-height: 300px;
@@ -384,7 +345,7 @@ mdui-list {
 .plugins-sidebar mdui-list {
     flex: 1;
     overflow-y: auto;
-    background-color: var(--mdui-color-surface-container);
+    background-color: rgb(var(--mdui-color-surface-container));
     border-radius: 12px;
 }
 
@@ -395,7 +356,7 @@ mdui-list {
 }
 
 .plugin-list-item.active {
-    background-color: var(--mdui-color-secondary-container);
+    background-color: rgb(var(--mdui-color-secondary-container));
 }
 
 /* 配置页 */
@@ -411,9 +372,9 @@ mdui-list {
     line-height: 1.6;
     padding: 12px;
     border-radius: 8px;
-    border: 1px solid var(--mdui-color-outline-variant);
-    background-color: var(--mdui-color-surface-container-low);
-    color: var(--mdui-color-on-surface);
+    border: 1px solid rgb(var(--mdui-color-outline-variant));
+    background-color: rgb(var(--mdui-color-surface-container-low));
+    color: rgb(var(--mdui-color-on-surface));
     resize: vertical;
 }
 
@@ -441,7 +402,7 @@ mdui-list {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--mdui-color-primary-container);
+    background: rgb(var(--mdui-color-primary-container));
 }
 
 .about-title {
@@ -452,7 +413,7 @@ mdui-list {
 
 .about-subtitle {
     font-size: 16px;
-    color: var(--mdui-color-on-surface-variant);
+    color: rgb(var(--mdui-color-on-surface-variant));
     margin-bottom: 32px;
 }
 
@@ -472,14 +433,14 @@ mdui-list {
 
 .version-label {
     font-size: 12px;
-    color: var(--mdui-color-on-surface-variant);
+    color: rgb(var(--mdui-color-on-surface-variant));
     text-transform: uppercase;
 }
 
 .version-value {
     font-size: 20px;
     font-weight: 600;
-    color: var(--mdui-color-primary);
+    color: rgb(var(--mdui-color-primary));
 }
 
 .tech-stack-title {
@@ -500,18 +461,18 @@ mdui-list {
     align-items: center;
     gap: 8px;
     padding: 16px;
-    background-color: var(--mdui-color-surface-container);
+    background-color: rgb(var(--mdui-color-surface-container));
     border-radius: 12px;
 }
 
 .tech-item mdui-icon {
     font-size: 32px;
-    color: var(--mdui-color-primary);
+    color: rgb(var(--mdui-color-primary));
 }
 
 .tech-item span {
     font-size: 14px;
-    color: var(--mdui-color-on-surface);
+    color: rgb(var(--mdui-color-on-surface));
 }
 
 /* 插件社区 */
@@ -550,12 +511,12 @@ mdui-list {
 .community-stat-value {
     font-size: 32px;
     font-weight: 700;
-    color: var(--mdui-color-primary);
+    color: rgb(var(--mdui-color-primary));
 }
 
 .community-stat-label {
     font-size: 14px;
-    color: var(--mdui-color-on-surface-variant);
+    color: rgb(var(--mdui-color-on-surface-variant));
 }
 
 .community-tabs {
@@ -597,11 +558,11 @@ mdui-list {
     width: 48px;
     height: 48px;
     border-radius: 12px;
-    background-color: var(--mdui-color-primary-container);
+    background-color: rgb(var(--mdui-color-primary-container));
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--mdui-color-on-primary-container);
+    color: rgb(var(--mdui-color-on-primary-container));
 }
 
 .plugin-card-info {
@@ -612,17 +573,17 @@ mdui-list {
 .plugin-card-name {
     font-size: 16px;
     font-weight: 600;
-    color: var(--mdui-color-on-surface);
+    color: rgb(var(--mdui-color-on-surface));
 }
 
 .plugin-card-author {
     font-size: 13px;
-    color: var(--mdui-color-on-surface-variant);
+    color: rgb(var(--mdui-color-on-surface-variant));
 }
 
 .plugin-card-desc {
     font-size: 14px;
-    color: var(--mdui-color-on-surface-variant);
+    color: rgb(var(--mdui-color-on-surface-variant));
     line-height: 1.5;
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -640,8 +601,8 @@ mdui-list {
     font-size: 12px;
     padding: 2px 8px;
     border-radius: 4px;
-    background-color: var(--mdui-color-secondary-container);
-    color: var(--mdui-color-on-secondary-container);
+    background-color: rgb(var(--mdui-color-secondary-container));
+    color: rgb(var(--mdui-color-on-secondary-container));
 }
 
 .plugin-card-footer {
@@ -649,7 +610,7 @@ mdui-list {
     align-items: center;
     justify-content: space-between;
     padding-top: 12px;
-    border-top: 1px solid var(--mdui-color-surface-variant);
+    border-top: 1px solid rgb(var(--mdui-color-surface-variant));
     margin-top: auto;
 }
 
@@ -661,25 +622,25 @@ mdui-list {
 
 .plugin-card-version {
     font-size: 12px;
-    color: var(--mdui-color-on-surface-variant);
+    color: rgb(var(--mdui-color-on-surface-variant));
     padding: 2px 6px;
     border-radius: 4px;
-    background-color: var(--mdui-color-surface-variant);
+    background-color: rgb(var(--mdui-color-surface-variant));
 }
 
 .plugin-card-downloads {
     font-size: 12px;
-    color: var(--mdui-color-on-surface-variant);
+    color: rgb(var(--mdui-color-on-surface-variant));
 }
 
 .plugin-card-updated {
     font-size: 12px;
-    color: var(--mdui-color-on-surface-variant);
+    color: rgb(var(--mdui-color-on-surface-variant));
 }
 
 .plugin-card-updated {
     font-size: 12px;
-    color: var(--mdui-color-on-surface-variant);
+    color: rgb(var(--mdui-color-on-surface-variant));
 }
 
 /* 响应式 */
@@ -747,9 +708,6 @@ mdui-list {
     .plugin-toolbar { align-items:stretch; }
     .plugin-actions mdui-button { flex:1; }
 }
-@media (prefers-reduced-motion:reduce) {
-    .page-content, .page-content.fade-in, .page-content.fade-out { transition:none; transform:none; }
-}
 .schema-body { display:flex; flex-direction:column; gap:16px; }
 .schema-field { min-width:0; padding:8px 0; }
 .schema-field .schema-field { padding-left:16px; border-left:2px solid rgb(var(--mdui-color-outline-variant)); }
@@ -795,3 +753,65 @@ mdui-list {
 .rules-trace h4 { margin:0 0 8px; }
 .rules-trace pre { white-space:pre-wrap; overflow-wrap:anywhere; }
 .rules-page mdui-list-item { overflow-wrap:anywhere; }
+
+/* P2.4: small, finite interactions; native MDUI navigation/dialog motion stays native. */
+:root {
+    --app-motion-short: var(--mdui-motion-duration-short3, 150ms);
+    --app-motion-ease: var(--mdui-motion-easing-standard, cubic-bezier(.2,0,0,1));
+}
+mdui-button, mdui-button-icon {
+    transition: transform var(--app-motion-short) var(--app-motion-ease);
+}
+mdui-button:not([disabled]):not([loading]):active,
+mdui-button-icon:not([disabled]):not([loading]):active { transform:scale(.985); }
+mdui-button[loading], mdui-button-icon[loading] { cursor:progress; }
+mdui-button[disabled], mdui-button-icon[disabled] { cursor:default; }
+mdui-button:focus-visible, mdui-button-icon:focus-visible, summary:focus-visible {
+    outline:2px solid rgb(var(--mdui-color-primary)); outline-offset:3px;
+}
+.plugin-sidebar mdui-list-item {
+    border-radius:12px;
+    transition: background-color var(--app-motion-short) var(--app-motion-ease), border-radius var(--app-motion-short) var(--app-motion-ease);
+}
+.plugin-sidebar mdui-list-item[active] { background-color:rgba(var(--mdui-color-secondary-container),.35); border-radius:24px; }
+.plugin-detail, .bot-card {
+    border-color:rgb(var(--mdui-color-outline-variant));
+    transition:border-color var(--app-motion-short) var(--app-motion-ease);
+}
+.plugin-detail:focus-within, .bot-card:focus-within { border-color:rgb(var(--mdui-color-primary)); }
+.stat-card-value { font-variant-numeric:tabular-nums; min-height:1.2em; }
+.page-title { line-height:1.4; }
+.page-title mdui-button { vertical-align:middle; }
+.ui-help { margin-block:12px; font-size:13px; color:rgb(var(--mdui-color-on-surface-variant)); overflow-wrap:anywhere; }
+.ui-help summary, .qq-diagnostics > summary { cursor:pointer; padding-block:6px; width:fit-content; }
+.ui-help p { margin:8px 0; max-width:76ch; line-height:1.6; }
+.qq-diagnostics { margin-top:12px; font-size:14px; }
+.qq-summary { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:8px 16px; line-height:1.6; }
+.qq-summary dt, .qq-summary small { color:rgb(var(--mdui-color-on-surface-variant)); }
+.qq-summary dd { margin:0; overflow-wrap:anywhere; }
+.config-card { margin-bottom:16px; }
+.plugin-page-surface > .plugin-toolbar { margin-top:8px; }
+#app-content, .plugin-workspace > *, .charts-grid > *, .stat-card, .bot-card { min-width:0; }
+[hidden] { display:none !important; }
+@media (max-width:839px) {
+    .page-background { position:absolute; }
+    .page-content { padding:12px; }
+    .plugin-page-surface { padding:4px; }
+    .page-title { font-size:22px; }
+    .page-title:has(mdui-button) { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .bot-card .bot-card-info { min-width:0 !important; flex-basis:100%; }
+    .bot-card [data-action] { max-width:100%; }
+    .bot-card-header { flex-wrap:wrap; }
+    .api-test-container, .tech-grid { min-width:0; }
+}
+@media (prefers-reduced-motion:reduce) {
+    mdui-button, mdui-button-icon, .plugin-sidebar mdui-list-item, .plugin-detail, .bot-card {
+        transition:none !important; transform:none !important; animation:none !important;
+    }
+    html { scroll-behavior:auto; }
+}
+
+.field-error { color:rgb(var(--mdui-color-error)); font-size:13px; margin-block:8px; }
+.field-error:empty { display:none; }
+
+.page-view { min-width:0; }

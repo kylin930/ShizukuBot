@@ -47,6 +47,9 @@ async def check(base, password, artifacts, chromium):
         async def wait_value(key, value):
             await page.wait_for_function('([key,value])=>[...document.querySelectorAll("mdui-text-field[data-schema-path]")].some(n=>n.getAttribute("data-schema-path")==="$["+JSON.stringify(key)+"]"&&n.value===value)', arg=[key, value])
 
+        async def feedback(text):
+            await page.wait_for_function('(text)=>document.querySelector("#plugin-feedback")?.textContent.includes(text)||[...document.querySelectorAll("mdui-snackbar[open]")].some(n=>n.textContent.includes(text))', arg=text)
+
         async def navigate(route):
             assert await page.evaluate('(route)=>navigateTo(route)', route)
 
@@ -61,12 +64,12 @@ async def check(base, password, artifacts, chromium):
         await page.locator('#plugin-form-mode').click()
         await wait_value('keyword', 'alpha-key')
         await page.locator('#plugin-save').click()
-        await page.wait_for_function('document.querySelector("#plugin-feedback").textContent.includes("配置已保存")')
+        await feedback('已保存')
         await select('#plugin-bot-select', 'beta')
         await wait_value('keyword', '你好')
         await field('keyword').fill('beta-key')
         await page.locator('#plugin-save').click()
-        await page.wait_for_function('document.querySelector("#plugin-feedback").textContent.includes("配置已保存")')
+        await feedback('已保存')
         data = await (await context.request.get(base + '/api/plugins/autoreply?bot_id=alpha')).json()
         assert data['data']['config']['keyword'] == 'alpha-key', 'Bot config crossed scopes'
         await field('keyword').fill('unsaved')
@@ -99,13 +102,13 @@ async def check(base, password, artifacts, chromium):
         await page.wait_for_function('document.querySelector("#plugin-toggle")?.textContent==="禁用插件"')
         await field('keyword').fill('alpha-applied')
         await page.locator('#plugin-save').click()
-        await page.wait_for_function('document.querySelector("#plugin-feedback").textContent.includes("已应用新配置")')
+        await feedback('配置已应用')
         await page.locator('#plugin-toggle').click()
         await page.wait_for_function('document.querySelector("#plugin-toggle")?.textContent==="启用插件"')
         await page.locator('#plugin-toggle').click()
         await page.wait_for_function('document.querySelector("#plugin-toggle")?.textContent==="禁用插件"')
         await page.locator('#plugin-restart').click()
-        await page.wait_for_function('document.querySelector("#plugin-feedback").textContent.includes("操作完成")')
+        await feedback('已更新')
         await page.locator('#plugin-search').locator('input').fill('Ping')
         assert await page.locator('#plugins-list [data-plugin-id]').count() == 1
         await page.locator('#plugin-search').locator('input').fill('')
@@ -193,7 +196,7 @@ async def check(base, password, artifacts, chromium):
         await page.route('**/api/plugins/autoreply', restart_failure)
         await field('keyword').fill('feedback-check')
         await page.locator('#plugin-save').click()
-        await page.wait_for_function('document.querySelector("#plugin-feedback").textContent.includes("配置已保存，但重启插件实例失败")')
+        await feedback('配置已保存，但实例重启失败')
         await page.unroute('**/api/plugins/autoreply', restart_failure)
 
         # Validate serialization of an enabled Bot without starting its connection.
@@ -212,13 +215,13 @@ async def check(base, password, artifacts, chromium):
         await navigate('/plugins')
         await page.wait_for_selector('#plugin-save')
         assert await page.locator('#plugin-save').evaluate('(e)=>e.disabled'), 'No-bot management was editable'
-        assert '尚无机器人' in await page.locator('#plugin-feedback').inner_text()
+        assert '暂无机器人' in await page.locator('#plugin-feedback').inner_text()
         await page.unroute('**/api/bots', no_bots)
         async def forbidden(route):
             await route.fulfill(status=403, body='administrator required')
         await page.route('**/api/bots', forbidden)
         await page.locator('#plugin-refresh').click()
-        await page.wait_for_function('document.querySelector("#plugin-feedback").textContent.includes("权限不足")')
+        await feedback('权限不足')
         await page.unroute('**/api/bots', forbidden)
         assert not page_errors, page_errors[:3]
         await browser.close()
