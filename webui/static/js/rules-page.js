@@ -75,7 +75,7 @@
             for (const rule of visible) {
                 const groupScope = rule.conditions.group_ids.length ? rule.conditions.group_ids.join(', ') : '所有群';
                 const item = U.el('mdui-list-item', {descriptionLine: 3, rounded: true, active: selectedId === rule.id, 'data-rule-id': rule.id,
-                    description: `${rule.enabled ? '已启用' : '已禁用'} · 优先级 ${rule.priority} · ${kinds[rule.trigger.type]} ${JSON.stringify(rule.trigger.value)} · ${rule.conditions.sources.join(' / ')} · ${groupScope}`});
+                    description: `${rule.enabled ? '已启用' : '已禁用'} · 优先级 ${rule.priority} · ${kinds[rule.trigger.type]} ${JSON.stringify(rule.trigger.value)} · ${rule.conditions.sources.map(source => source === 'group' ? '群聊' : 'C2C').join(' / ')} · ${groupScope}`});
                 // MDUI list headlines use the default slot, not a headline property.
                 item.append(U.text('span', rule.name));
                 scope.on(item, 'click', async () => {
@@ -161,7 +161,7 @@
         }
         async function remove() {
             if (scope.busy || !await U.mayLeave()) return;
-            try {await mdui.confirm({headline: '删除规则？', description: '删除后无法恢复。', confirmText: '确认删除', cancelText: '取消'});} catch {return;}
+            try {await mdui.confirm({closeOnEsc: true, headline: '删除规则？', description: '删除后无法恢复。', confirmText: '确认删除', cancelText: '取消'});} catch {return;}
             await commit(set.rules.filter(rule => rule.id !== selectedId), '', '规则已删除。');
         }
         function testPanel() {

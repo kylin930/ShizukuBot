@@ -1,19 +1,10 @@
 /* ShizukuBot WebUI 样式 - MDUI2 */
 
 /* 页面背景 */
-html, body {
-    height: 100%;
-    margin: 0;
-    padding: 0;
-}
-
-body {
-    background-image: url('https://teachermate.oss-cn-qingdao.aliyuncs.com/vokMW-1750340487715-nekoaft_N02_a.png');
-    background-size: cover;
-    background-position: center;
-    background-attachment: fixed;
-    background-repeat: no-repeat;
-}
+html, body {height:100%;margin:0;padding:0;}
+body {isolation:isolate;}
+/* The original image uses an explicit no-referrer request to avoid hotlink rejection. */
+.page-background { position:fixed; inset:0; width:100%; height:100%; object-fit:cover; z-index:-1; pointer-events:none; }
 
 mdui-layout {
     background-color: transparent;
@@ -803,7 +794,7 @@ mdui-button:focus-visible, mdui-button-icon:focus-visible, summary:focus-visible
 #app-content, .plugin-workspace > *, .charts-grid > *, .stat-card, .bot-card { min-width:0; }
 [hidden] { display:none !important; }
 @media (max-width:839px) {
-    body { background-attachment:scroll; }
+    .page-background { position:absolute; }
     .page-content { padding:12px; }
     .plugin-page-surface { padding:4px; }
     .page-title { font-size:22px; }
@@ -822,3 +813,5 @@ mdui-button:focus-visible, mdui-button-icon:focus-visible, summary:focus-visible
 
 .field-error { color:rgb(var(--mdui-color-error)); font-size:13px; margin-block:8px; }
 .field-error:empty { display:none; }
+
+.page-view { min-width:0; }

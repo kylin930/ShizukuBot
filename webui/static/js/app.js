@@ -89,20 +89,33 @@ function syncNavigation(route) {
 
 function renderPage() {
     const content = document.getElementById('app-content');
+    const previous = content.querySelector(':scope > .page-view:not([hidden])');
+    if (previous) {previous.hidden = true; previous.inert = true;}
+    const view = document.createElement('div'); view.className = 'page-view';
+    content.prepend(view);
     ++pageEpoch;
     if (statsRefreshTimer) {clearInterval(statsRefreshTimer); statsRefreshTimer = null;}
     if (logWebSocket) {logWebSocket.onmessage = null; logWebSocket.close(); logWebSocket = null;}
     historyChart?.destroy(); hourlyChart?.destroy(); historyChart = hourlyChart = null;
-    pageScope = window.AdminUI.begin(content);
+    pageScope = window.AdminUI.begin(view);
     const renderers = {'/stats': renderStats, '/bots': renderBots, '/logs': renderLogs, '/api-test': renderApiTest,
         '/plugins': window.PluginPages.renderPlugins, '/rules': window.RulesPage.render,
         '/community': renderCommunity, '/sandbox': window.SandboxPage.render, '/config': renderConfig,
         '/users': renderUsers, '/about': renderAbout};
     const epoch = pageEpoch;
-    Promise.resolve((renderers[currentRoute] || renderStats)(content)).catch(error => {
+    Promise.resolve((renderers[currentRoute] || renderStats)(view)).catch(error => {
         if (epoch === pageEpoch && error.name !== 'AbortError') showSnackbar('页面加载失败：' + error.message);
     });
     window.AdminUI.enter(content, true);
+    // MDUI 2 text fields await their own updateComplete before sizing. Keep the
+    // previous view connected but hidden through native updates and the next frame.
+    // This does not delay the new renderer or its requests, and uses no timer.
+    if (previous) {
+        const fields = [...previous.querySelectorAll('mdui-text-field')];
+        Promise.allSettled(fields.map(async field => {
+            do {await field.updateComplete;} while (field.isUpdatePending);
+        })).then(() => requestAnimationFrame(() => previous.remove()));
+    }
 }
 
 // ==================== 统计页 ====================
@@ -602,7 +615,7 @@ function renderConfigPreview() {
     document.getElementById('config-textarea').value = JSON.stringify(safe, null, 2);
 }
 function configDraft() {
-    const root = document.getElementById('config-textarea')?.closest('.page-content');
+    const root = currentRoute === '/config' ? pageScope?.container : null;
     if (!root) return '';
     return JSON.stringify([...root.querySelectorAll('mdui-text-field, mdui-select, mdui-switch, textarea')].map(node => [node.id || node.className, node.value, node.checked]));
 }
@@ -845,7 +858,7 @@ function renderUsersList() {
 }
 
 function showAddUserDialog() {
-    mdui.dialog({
+    mdui.dialog({closeOnEsc: true,
         headline: '添加用户',
         body: `
             <div style="display:flex;flex-direction:column;gap:16px;padding:8px 0">
@@ -894,7 +907,7 @@ function showAddUserDialog() {
 }
 
 function showChangePasswordDialog(username) {
-    mdui.dialog({
+    mdui.dialog({closeOnEsc: true,
         headline: '修改密码 - ' + username,
         body: `
             <div style="padding:8px 0">
@@ -935,7 +948,7 @@ function showChangePasswordDialog(username) {
 
 async function deleteUser(username) {
     try {
-        await mdui.confirm({
+        await mdui.confirm({closeOnEsc: true,
             headline: '删除用户',
             description: '确定要删除用户：' + username + ' 吗？此操作不可恢复。',
             confirmText: '删除',
@@ -1088,7 +1101,7 @@ async function loadBotsManageList(container) {
                         showBotConfigDialog(id, container);
                     } else if (action === 'delete') {
                         try {
-                            await mdui.confirm({
+                            await mdui.confirm({closeOnEsc: true,
                                 headline: '删除机器人',
                                 description: '确定删除机器人：' + id + ' 吗？此操作不可恢复。',
                                 confirmText: '删除',
@@ -1127,17 +1140,19 @@ function renderQQDiagnostics(bot) {
         unknown_platform_error: '未知平台错误', network_or_protocol: '网络或协议异常'
     };
     const failure = d.last_send_failure ? (categories[d.last_send_failure] || d.last_send_failure) : '';
+    const lastError = failure && (!d.last_transport_error || Date.parse(d.last_send_failure_at || 0) >= Date.parse(d.last_transport_error_at || 0)) ? failure : (d.last_transport_error || failure || '暂无记录');
     return `<details class="qq-diagnostics">
         <summary>QQ 诊断</summary>
         <dl class="qq-summary">
             <dt>接入方式</dt><dd>${escapeHtml(bot.mode || 'webhook')} · ${bot.running ? '运行中' : '已停止'}</dd>
             <dt>最近事件</dt><dd>${time(d.last_event_at)}</dd>
             <dt>最近回复</dt><dd>${time(d.last_reply_at)} <small>平台接受</small></dd>
-            <dt>最近错误</dt><dd>${escapeHtml(failure || d.last_transport_error || '暂无记录')}</dd>
+            <dt>最近错误</dt><dd>${escapeHtml(lastError)}</dd>
         </dl>
         <details class="ui-help"><summary>详细诊断</summary>
             <p>事件类型：${escapeHtml(d.last_event_type || '暂无记录')}；消息 ID：${d.last_event_at ? (d.has_message_id ? '已收到' : '本事件未提供') : '未检测'}</p>
             <p>HTTP：${escapeHtml(String(d.http_status || '未检测'))}；平台码：${escapeHtml(String(d.platform_code || '未检测'))}；Trace ID：${escapeHtml(d.trace_id || '暂无记录')}</p>
+            <p>最近发送错误：${escapeHtml(failure || '暂无记录')} · ${time(d.last_send_failure_at)}</p>
             <p>最近回调/连接错误：${escapeHtml(d.last_transport_error || '暂无记录')} · ${time(d.last_transport_error_at)}</p>
         </details>
         <details class="ui-help"><summary>接入帮助</summary>
@@ -1206,7 +1221,7 @@ function showBotDialog(botId, container) {
     }
 
     function renderForm(b) {
-        mdui.dialog({
+        mdui.dialog({closeOnEsc: true,
             headline: isEdit ? '编辑机器人' : '添加机器人',
             body: `
                 <div style="display:flex;flex-direction:column;gap:12px;padding:8px 0">
@@ -1266,7 +1281,7 @@ function showBotPluginsDialog(botId, container) {
         const selectedIds = new Set(bot.plugins || []);
         const plugins = allPluginsCache;
 
-        mdui.dialog({
+        mdui.dialog({closeOnEsc: true,
             headline: '配置 ' + escapeHtml(bot.name || botId) + ' 的插件',
             body: `
                 <div style="padding:8px 0">
@@ -1315,7 +1330,7 @@ function showBotConfigDialog(botId, container) {
     apiGet('/api/bots/' + botId).then(data => {
         const bot = (data.code === 0 ? data.data : data) || {};
 
-        mdui.dialog({
+        mdui.dialog({closeOnEsc: true,
             headline: escapeHtml(bot.name || botId) + ' - 配置',
             body: `
                 <div style="display:flex;flex-direction:column;gap:12px;padding:8px 0">

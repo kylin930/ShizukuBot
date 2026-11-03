@@ -14,12 +14,9 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background-image: url('https://teachermate.oss-cn-qingdao.aliyuncs.com/vokMW-1750340487715-nekoaft_N02_a.png');
-            background-size: cover;
-            background-position: center;
-            background-attachment: fixed;
-            background-repeat: no-repeat;
         }
+        body {isolation:isolate;}
+        .page-background {position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:-1;pointer-events:none;}
         .login-card {
             width: 424px;
             padding: 32px;
@@ -66,7 +63,7 @@
             min-height: 20px;
             text-align: center;
         }
-        @media (max-width:839px) {body {background-attachment:scroll;} .login-card {padding:24px;}}
+        @media (max-width:839px) {.page-background {position:absolute;} .login-card {padding:24px;}}
         @media (prefers-reduced-motion:reduce) {mdui-button {transition:none !important; transform:none !important;}}
         .login-footer {
             margin-top: 24px;
@@ -77,6 +74,7 @@
     </style>
 </head>
 <body>
+    <img class="page-background" src="https://teachermate.oss-cn-qingdao.aliyuncs.com/vokMW-1750340487715-nekoaft_N02_a.png" alt="" aria-hidden="true" referrerpolicy="no-referrer">
     <mdui-card variant="outlined" class="login-card">
         <div class="login-logo">
             <mdui-icon name="smart_toy" style="font-size:40px;color:rgb(var(--mdui-color-primary))"></mdui-icon>

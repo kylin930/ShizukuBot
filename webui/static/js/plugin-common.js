@@ -65,7 +65,7 @@
         if (!message) return;
         if (kind === 'success') {window.showSnackbar?.(message); return;}
         // A loading button already identifies the in-flight operation.
-        if (kind === 'loading' && host.closest('.plugin-page-surface')?.querySelector('mdui-button[loading]')) return;
+        if (kind === 'loading' && [...(host.closest('.plugin-page-surface')?.querySelectorAll('mdui-button') || [])].some(button => button.loading)) return;
         host.className = 'plugin-notice ' + kind;
         host.setAttribute('role', kind === 'error' ? 'alert' : 'status');
         if (kind === 'loading') host.append(el('mdui-circular-progress', {class: 'plugin-spinner', 'aria-label': '加载中'}));
@@ -110,7 +110,7 @@
     }
     function dispose() { active?.controller.abort(); active = null; cancelMotion(); }
     async function confirmDiscard() {
-        try { await mdui.confirm({headline: '有未保存的配置', description: '离开会放弃本次修改。', confirmText: '放弃修改', cancelText: '继续编辑'}); return true; }
+        try { await mdui.confirm({closeOnEsc: true, headline: '有未保存的配置', description: '离开会放弃本次修改。', confirmText: '放弃修改', cancelText: '继续编辑'}); return true; }
         catch { return false; }
     }
     async function mayLeave() {
@@ -121,10 +121,10 @@
         return leavePromise;
     }
     function controlsBusy(root, busy) {
+        const trigger = busy ? document.activeElement?.closest('mdui-button, mdui-button-icon') : null;
         root.inert = busy;
         root.setAttribute('aria-busy', String(busy));
         if (busy) {
-            const trigger = document.activeElement?.closest('mdui-button, mdui-button-icon');
             if (trigger && root.contains(trigger)) {root.dataset.busyButton = trigger.id; trigger.loading = true;}
         }
         root.querySelectorAll('mdui-button, mdui-button-icon, mdui-select, mdui-text-field, mdui-switch, mdui-checkbox, textarea, input').forEach(control => {
