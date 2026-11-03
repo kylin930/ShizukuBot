@@ -30,7 +30,7 @@
             if (error.name !== 'AbortError' && node.isConnected) {
                 const host = node.closest('.plugin-page-surface')?.querySelector('#plugin-feedback, #sandbox-feedback, #rules-feedback');
                 if (host) notice(host, errorMessage(error), 'error');
-                else window.showSnackbar?.('操作失败，请检查输入。');
+                else window.showSnackbar?.('操作失败，请检查输入');
             }
         }));
         return node;
@@ -75,8 +75,8 @@
         return el('details', {class: 'ui-help'}, [text('summary', label), ...paragraphs.map(value => text('p', value))]);
     }
     function errorMessage(error) {
-        if (error.status === 401) return '登录已过期，请重新登录。';
-        if (error.status === 403) return '权限不足，请检查账号和请求来源。';
+        if (error.status === 401) return '登录已过期，请重新登录';
+        if (error.status === 403) return '权限不足，请检查账号和请求来源';
         return error.message || '请求失败';
     }
     async function request(url, options = {}) {
@@ -92,7 +92,7 @@
             const error = Error(body?.message || source.slice(0, 1000) || `HTTP ${response.status}`);
             error.status = response.status; error.code = body?.code; throw error;
         }
-        if (!body) throw Error('服务器响应无效，请重试。');
+        if (!body) throw Error('服务器响应无效，请重试');
         return typeof body.code === 'number' ? body.data : body;
     }
     function begin(container) {
@@ -108,14 +108,14 @@
         scope.on(window, 'beforeunload', event => { if (scope.dirty()) {event.preventDefault(); event.returnValue = '';} });
         return scope;
     }
-    function dispose() { active?.controller.abort(); active = null; cancelMotion(); }
+    function dispose() {active?.cleanup?.(); active?.controller.abort(); active = null; cancelMotion(); }
     async function confirmDiscard() {
-        try { await mdui.confirm({closeOnEsc: true, headline: '有未保存的配置', description: '离开会放弃本次修改。', confirmText: '放弃修改', cancelText: '继续编辑'}); return true; }
+        try { await mdui.confirm({closeOnEsc: true, headline: '有未保存的配置', description: '离开会放弃本次修改', confirmText: '放弃修改', cancelText: '继续编辑'}); return true; }
         catch { return false; }
     }
     async function mayLeave() {
         if (!active) return true;
-        if (active.busy) {window.showSnackbar?.('操作中，请稍候。'); return false;}
+        if (active.busy) {window.showSnackbar?.('操作中，请稍候'); return false;}
         if (!active.dirty()) return true;
         if (!leavePromise) leavePromise = confirmDiscard().finally(() => {leavePromise = null;});
         return leavePromise;

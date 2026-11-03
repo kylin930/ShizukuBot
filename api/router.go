@@ -20,6 +20,7 @@ import (
 	"shizukubot/pluginregistry"
 	"shizukubot/plugins"
 	"shizukubot/rules"
+	stats "shizukubot/storage/stats"
 	"shizukubot/webhook"
 	"shizukubot/webui"
 )
@@ -81,16 +82,18 @@ func serveTempImage(w http.ResponseWriter, r *http.Request) {
 
 type Router struct {
 	*mux.Router
-	botManager *core.BotManager
-	config     *config.Config
-	configPath string
-	logManager *core.LogManager
-	templates  *template.Template
-	plugins    *plugins.Manager
-	rules      *rules.Engine
-	configMu   sync.RWMutex
-	botOps     sync.Map
-	pluginOps  sync.Map
+	botManager     *core.BotManager
+	config         *config.Config
+	configPath     string
+	logManager     *core.LogManager
+	templates      *template.Template
+	plugins        *plugins.Manager
+	rules          *rules.Engine
+	configMu       sync.RWMutex
+	configRevision string
+	appearanceMu   sync.Mutex
+	botOps         sync.Map
+	pluginOps      sync.Map
 }
 
 func NewRouter(botManager *core.BotManager, cfg *config.Config, cfgPath string, logManager *core.LogManager) *Router {
@@ -103,6 +106,13 @@ func NewRouter(botManager *core.BotManager, cfg *config.Config, cfgPath string, 
 
 // NewRouterWithRegistry supports embedded applications and isolated plugin tests.
 func NewRouterWithRegistry(botManager *core.BotManager, cfg *config.Config, cfgPath string, logManager *core.LogManager, registry *plugins.Registry) *Router {
+	cfg = cloneConfig(cfg)
+	if cfg.WebUI.Appearance.Background.Type == "" {
+		cfg.WebUI.Appearance = config.DefaultAppearance()
+	}
+	if cfg.Statistics.CleanupTime == "" {
+		cfg.Statistics = stats.Defaults()
+	}
 	manager, err := plugins.NewManager(registry, botManager.Events(), "data/plugin-data")
 	if err != nil {
 		panic("plugin settings initialization failed")
@@ -115,13 +125,14 @@ func NewRouterWithRegistry(botManager *core.BotManager, cfg *config.Config, cfgP
 	}
 
 	r := &Router{
-		Router:     mux.NewRouter(),
-		botManager: botManager,
-		config:     cfg,
-		configPath: cfgPath,
-		logManager: logManager,
-		templates:  template.Must(template.ParseFiles("webui/templates/login.html")),
-		plugins:    manager,
+		Router:         mux.NewRouter(),
+		botManager:     botManager,
+		config:         cfg,
+		configRevision: newConfigRevision(),
+		configPath:     cfgPath,
+		logManager:     logManager,
+		templates:      template.Must(template.ParseFiles("webui/templates/login.html")),
+		plugins:        manager,
 	}
 
 	webui.ConfigureCookies(cfg.WebUI.SecureCookies)
@@ -171,6 +182,9 @@ func NewRouterWithRegistry(botManager *core.BotManager, cfg *config.Config, cfgP
 }
 
 func (r *Router) registerRoutes() {
+	r.HandleFunc("/api/appearance", r.PublicAppearance).Methods(http.MethodGet)
+	r.HandleFunc("/appearance/bootstrap.js", r.AppearanceBootstrap).Methods(http.MethodGet)
+	r.HandleFunc("/appearance/images/{file}", r.BackgroundImage).Methods(http.MethodGet)
 	r.HandleFunc("/login", r.LoginPageHandler).Methods(http.MethodGet)
 	r.HandleFunc("/login", webui.LoginHandler).Methods(http.MethodPost)
 	r.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusMethodNotAllowed) }).Methods(http.MethodGet)
@@ -211,6 +225,12 @@ func (r *Router) registerRoutes() {
 	api.HandleFunc("/bots/{id}/rules", r.GetRules).Methods(http.MethodGet)
 	api.HandleFunc("/bots/{id}/rules", r.ReplaceRules).Methods(http.MethodPut)
 	api.HandleFunc("/bots/{id}/rules/test", r.TestRules).Methods(http.MethodPost)
+	api.HandleFunc("/stats/history", r.StatsHistory).Methods(http.MethodGet)
+	api.HandleFunc("/stats/storage", r.StatsStatus).Methods(http.MethodGet)
+	api.HandleFunc("/stats/cleanup", r.StatsCleanup).Methods(http.MethodPost)
+	api.HandleFunc("/system", r.SystemInfo).Methods(http.MethodGet)
+	api.HandleFunc("/appearance/background", r.UploadBackground).Methods(http.MethodPost)
+	api.HandleFunc("/appearance/background", r.DeleteBackground).Methods(http.MethodDelete)
 	api.HandleFunc("/stats", r.GetStats).Methods(http.MethodGet)
 	api.HandleFunc("/bots/{id}/stats", r.GetBotStats).Methods(http.MethodGet)
 	api.HandleFunc("/config", r.GetConfig).Methods(http.MethodGet)

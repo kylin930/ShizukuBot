@@ -5,14 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	stats "shizukubot/storage/stats"
 )
 
 type WebUIConfig struct {
-	Enabled       bool   `json:"enabled"`
-	Port          int    `json:"port"`
-	Password      string `json:"password"`
-	Host          string `json:"host"`
-	SecureCookies bool   `json:"secure_cookies"`
+	Appearance    Appearance `json:"appearance"`
+	Enabled       bool       `json:"enabled"`
+	Port          int        `json:"port"`
+	Password      string     `json:"password"`
+	Host          string     `json:"host"`
+	SecureCookies bool       `json:"secure_cookies"`
 }
 
 type BotConfig struct {
@@ -36,6 +39,7 @@ type BuiltinCommandsConfig struct {
 }
 
 type Config struct {
+	Statistics      stats.Options         `json:"statistics"`
 	WebUI           WebUIConfig           `json:"webui"`
 	Bots            []BotConfig           `json:"bots"`
 	MarketAPI       string                `json:"market_api"`
@@ -60,11 +64,17 @@ func LoadConfig(filePath string) (*Config, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	var config Config
+	config := Config{Statistics: stats.Defaults(), WebUI: WebUIConfig{Appearance: DefaultAppearance()}}
 	if err := json.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
+	if err := config.Statistics.Validate(); err != nil {
+		return nil, err
+	}
+	if err := config.WebUI.Appearance.Validate(); err != nil {
+		return nil, err
+	}
 	if config.WebUI.Password == "" {
 		config.WebUI.Password = generateRandomPassword()
 		if err := SaveConfig(filePath, &config); err != nil {
@@ -111,19 +121,38 @@ func SaveConfig(filePath string, config *Config) error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(filePath, data, 0600); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
+	if err := os.MkdirAll(filepath.Dir(filePath), 0700); err != nil {
+		return err
 	}
-
-	return os.Chmod(filePath, 0600)
+	f, err := os.CreateTemp(filepath.Dir(filePath), ".config-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if err = f.Chmod(0600); err == nil {
+		_, err = f.Write(data)
+	}
+	if err == nil {
+		err = f.Sync()
+	}
+	closeErr := f.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Rename(f.Name(), filePath)
 }
 
 func createDefaultConfig() *Config {
 	return &Config{
+		Statistics: stats.Defaults(),
 		WebUI: WebUIConfig{
-			Enabled:  true,
-			Port:     4545,
-			Password: generateRandomPassword(),
+			Appearance: DefaultAppearance(),
+			Enabled:    true,
+			Port:       4545,
+			Password:   generateRandomPassword(),
 		},
 		Bots: []BotConfig{
 			{

@@ -1,10 +1,22 @@
 package api
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
 	"shizukubot/config"
 )
 
-// configSnapshot gives queries an independent view; no caller holds a lock over external work.
+var errConfigConflict = errors.New("配置已被其他管理员修改，请重新加载后重试")
+
+func newConfigRevision() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic("configuration revision randomness unavailable")
+	}
+	return hex.EncodeToString(b[:])
+}
 func (r *Router) configSnapshot() *config.Config {
 	r.configMu.RLock()
 	defer r.configMu.RUnlock()
@@ -19,15 +31,23 @@ func cloneConfig(c *config.Config) *config.Config {
 	}
 	return &out
 }
-
 func (r *Router) changeConfig(change func(*config.Config)) error {
+	return r.changeConfigChecked("", func(c *config.Config) error { change(c); return nil })
+}
+func (r *Router) changeConfigChecked(expected string, change func(*config.Config) error) error {
 	r.configMu.Lock()
 	defer r.configMu.Unlock()
+	if expected != "" && expected != r.configRevision {
+		return errConfigConflict
+	}
 	next := cloneConfig(r.config)
-	change(next)
-	if err := config.SaveConfig(r.configPath, next); err != nil {
+	if err := change(next); err != nil {
 		return err
 	}
+	if err := config.SaveConfig(r.configPath, next); err != nil {
+		return fmt.Errorf("save config: %w", err)
+	}
 	r.config = next
+	r.configRevision = newConfigRevision()
 	return nil
 }

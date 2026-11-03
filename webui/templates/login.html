@@ -72,9 +72,13 @@
             text-align: center;
         }
     </style>
+    <script src="https://unpkg.com/mdui@2.1.5/mdui.global.js"></script>
+    <script src="/appearance/bootstrap.js"></script>
+    <script src="/static/js/appearance.js"></script>
 </head>
 <body>
-    <img class="page-background" src="https://teachermate.oss-cn-qingdao.aliyuncs.com/vokMW-1750340487715-nekoaft_N02_a.png" alt="" aria-hidden="true" referrerpolicy="no-referrer">
+    <img class="page-background" data-default-src="https://teachermate.oss-cn-qingdao.aliyuncs.com/vokMW-1750340487715-nekoaft_N02_a.png" alt="" aria-hidden="true" referrerpolicy="no-referrer">
+    <script>AppearanceUI.attachBackground();</script>
     <mdui-card variant="outlined" class="login-card">
         <div class="login-logo">
             <mdui-icon name="smart_toy" style="font-size:40px;color:rgb(var(--mdui-color-primary))"></mdui-icon>
@@ -101,7 +105,6 @@
         <div class="login-footer">ShizukuBot</div>
     </mdui-card>
 
-    <script src="https://unpkg.com/mdui@2.1.5/mdui.global.js"></script>
     <script>
         document.getElementById('login-form').addEventListener('submit', async (e) => {
             e.preventDefault();

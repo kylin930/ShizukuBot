@@ -49,13 +49,13 @@
                 const data = await scope.request('/api/plugins' + (botId ? '?bot_id=' + encodeURIComponent(botId) : ''));
                 if (!scope.current() || version !== revision) return;
                 plugins = data;
-                U.notice(feedback, botId ? '' : '暂无机器人，请先添加。');
+                U.notice(feedback, botId ? '' : '暂无机器人，请先添加');
                 if (!plugins.some(plugin => plugin.id === selectedId)) selectedId = plugins[0]?.id || '';
                 editor = null; renderList(); renderDetail(); sidebar.inert = detail.inert = false; detail.setAttribute('aria-busy', 'false'); return true;
             } catch (error) {
                 if (!scope.current() || version !== revision) return;
                 loadError = U.errorMessage(error); U.notice(feedback, loadError, 'error');
-                detail.inert = false; detail.setAttribute('aria-busy', 'false'); detail.replaceChildren(U.text('p', '无法加载插件，请重试。')); return false;
+                detail.inert = false; detail.setAttribute('aria-busy', 'false'); detail.replaceChildren(U.text('p', '无法加载插件，请重试')); return false;
             }
         }
         function renderList() {
@@ -77,11 +77,11 @@
                 });
                 list.append(item);
             }
-            if (!visible.length) list.append(U.text('p', plugins.length ? '没有匹配的插件。' : '暂无插件。', 'plugin-empty'));
+            if (!visible.length) list.append(U.text('p', plugins.length ? '没有匹配的插件' : '暂无插件', 'plugin-empty'));
         }
         function renderDetail() {
             const plugin = plugins.find(p => p.id === selectedId);
-            if (!plugin) {detail.replaceChildren(U.text('p', '选择插件查看详情。')); return;}
+            if (!plugin) {detail.replaceChildren(U.text('p', '选择插件查看详情')); return;}
             U.context.pluginId = plugin.id;
             const actions = U.el('div', {class: 'plugin-actions'});
             const configHost = U.el('section', {class: 'plugin-section'});
@@ -99,7 +99,7 @@
             const save = U.button('保存并应用', () => mutate('save', plugin), 'plugin-save', 'filled');
             const reset = U.button('重置', async () => {if (await U.mayLeave()) {editor = null; renderDetail();}}, 'plugin-reset');
             save.disabled = reset.disabled = !botId;
-            configHost.append(U.text('h3', '配置'), editor?.element || U.text('p', '请先选择机器人。'), U.el('div', {class: 'plugin-actions'}, [save, reset]));
+            configHost.append(U.text('h3', '配置'), editor?.element || U.text('p', '请先选择机器人'), U.el('div', {class: 'plugin-actions'}, [save, reset]));
             if (plugin.config_error) configHost.append(U.errorDetails('配置无效：' + plugin.config_error));
             const toggle = U.button(plugin.enabled ? '禁用插件' : '启用插件', () => mutate('toggle', plugin), 'plugin-toggle', 'filled');
             toggle.disabled = !botId || (!plugin.enabled && !plugin.allowed);
@@ -108,7 +108,7 @@
             actions.append(toggle, restart, U.button('沙盒测试', () => U.openSandbox(botId, plugin.id), 'plugin-sandbox'));
             runtime.append(U.text('h3', '运行状态'), actions,
                 U.help('重启说明', ['仅重启此插件实例。源码更新需要重新构建和部署。']));
-            if (plugin.restart_required) runtime.append(U.text('p', '配置未应用，请重启实例。', 'plugin-warning'));
+            if (plugin.restart_required) runtime.append(U.text('p', '配置未应用，请重启实例', 'plugin-warning'));
             if (plugin.last_error) runtime.append(U.text('h4', '最近一次错误'), U.errorDetails(plugin.last_error));
             if (botId && !plugin.allowed) runtime.append(U.text('p', '此机器人已排除此插件。请在机器人配置中允许后再启用。', 'plugin-warning'));
             const advanced = U.el('details', {class: 'plugin-section'}, [U.text('summary', '高级信息与数据备份'),
@@ -125,7 +125,7 @@
         }
         async function mutate(action, plugin) {
             if (scope.busy || !botId) return;
-            if (!plugin.bot_exists || plugin.bot_id !== botId) {U.notice(feedback, '状态已变化，请刷新后重试。', 'error'); return;}
+            if (!plugin.bot_exists || plugin.bot_id !== botId) {U.notice(feedback, '状态已变化，请刷新后重试', 'error'); return;}
             let value;
             try {if (action === 'save') value = editor.getValue();}
             catch (error) {U.notice(feedback, '配置无效：' + error.message, 'error'); return;}
@@ -143,7 +143,7 @@
                 if (!scope.current()) return;
                 if (!refreshed) {U.notice(feedback, '已提交，状态刷新失败：' + loadError + (result?.restart_error ? '；实例重启失败：' + result.restart_error : ''), 'error'); return;}
                 if (result?.restart_error) U.notice(feedback, '配置已保存，但实例重启失败：' + result.restart_error, 'error');
-                else U.notice(feedback, action === 'save' ? (result.applied ? '配置已应用。' : '已保存。') : '已更新。', 'success');
+                else U.notice(feedback, action === 'save' ? (result.applied ? '配置已应用' : '已保存') : '已更新', 'success');
             } catch (error) {if (scope.current()) U.notice(feedback, U.errorMessage(error), 'error');}
             finally {scope.busy = false; if (scope.current()) U.controlsBusy(container, false);}
         }
@@ -153,18 +153,18 @@
                 if (!scope.current()) return;
                 const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'}));
                 const a = U.el('a', {href: url, download: id + '-data.json'}); a.click(); URL.revokeObjectURL(url);
-                U.notice(feedback, '备份已生成，请妥善保管。');
+                U.notice(feedback, '备份已生成，请妥善保管', 'success');
             } catch (error) {if (scope.current()) U.notice(feedback, U.errorMessage(error), 'error');}
         }
         async function restore(file) {
             if (scope.busy || !await U.mayLeave()) return;
-            const chosen = file.files[0]; if (!chosen || chosen.size > 4 * 1024 * 1024) {U.notice(feedback, '请选择不超过 4 MiB 的 JSON 数据备份。', 'error'); return;}
+            const chosen = file.files[0]; if (!chosen || chosen.size > 4 * 1024 * 1024) {U.notice(feedback, '请选择不超过 4 MiB 的 JSON 数据备份', 'error'); return;}
             scope.busy = true; U.controlsBusy(container, true);
             try {
                 await scope.request('/api/plugins/data/restore', {method: 'POST', body: await chosen.text(), rawBody: true});
                 if (!scope.current()) return;
                 scope.busy = false; editor = null; await reload(false);
-                U.notice(feedback, '数据已恢复，插件保持禁用。', 'success');
+                U.notice(feedback, '数据已恢复，插件保持禁用', 'success');
             } catch (error) {if (scope.current()) U.notice(feedback, U.errorMessage(error), 'error');}
             finally {scope.busy = false; if (scope.current()) U.controlsBusy(container, false);}
         }

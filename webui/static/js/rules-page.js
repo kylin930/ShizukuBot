@@ -46,8 +46,8 @@
                 botSelect.replaceChildren(...bots.map(bot => U.el('mdui-menu-item', {value: bot.id, text: `${bot.name || bot.id} · ${bot.id}`})));
                 botSelect.value = botId; botSelect.disabled = !botId;
                 if (!botId) {
-                    detail.inert = false; list.replaceChildren(); detail.replaceChildren(U.text('p', '请先添加机器人。'));
-                    U.notice(feedback, '暂无机器人，请先添加。'); return;
+                    detail.inert = false; list.replaceChildren(); detail.replaceChildren(U.text('p', '请先添加机器人'));
+                    U.notice(feedback, '暂无机器人，请先添加'); return;
                 }
                 const next = await scope.request(path());
                 if (!scope.current() || token !== generation) return;
@@ -55,7 +55,7 @@
             } catch (error) {
                 if (!scope.current() || token !== generation) return;
                 U.notice(feedback, U.errorMessage(error), 'error');
-                detail.inert = false; detail.replaceChildren(U.text('p', '无法加载规则，请刷新重试。'));
+                detail.inert = false; detail.replaceChildren(U.text('p', '无法加载规则，请刷新重试'));
             }
         }
         function apply(next, prefer) {
@@ -83,11 +83,11 @@
                     selectRule(rule); U.activateList(list, 'ruleId', selectedId); U.reveal(detail);
                 }); list.append(item);
             }
-            if (!visible.length) list.append(U.text('p', set?.rules.length ? '没有匹配的规则。' : '暂无规则，点击“新建规则”添加。', 'plugin-empty'));
+            if (!visible.length) list.append(U.text('p', set?.rules.length ? '没有匹配的规则' : '暂无规则，点击“新建规则”添加', 'plugin-empty'));
         }
         async function newRule() {
             if (!set || scope.busy || !await U.mayLeave()) return;
-            if (set.rules.length >= 100) {U.notice(feedback, '每个 Bot 最多 100 条规则。', 'error'); return;}
+            if (set.rules.length >= 100) {U.notice(feedback, '每个 Bot 最多 100 条规则', 'error'); return;}
             const token = crypto.getRandomValues(new Uint8Array(16));
             const id = 'rule-' + Array.from(token, byte => byte.toString(16).padStart(2, '0')).join('');
             draft = {id, name: '', enabled: false, priority: 100,
@@ -102,7 +102,7 @@
             scope.on(node, 'input', () => {change(node.value); dirtyLabel();}); return node;
         }
         function renderDetail() {
-            if (!draft) {detail.replaceChildren(U.text('p', '选择或新建规则。')); return;}
+            if (!draft) {detail.replaceChildren(U.text('p', '选择或新建规则')); return;}
             const r = draft;
             const name = field('rule-name', '规则名称（最多 128 字节）', r.name, v => {r.name = v;});
             const kind = U.select('触发方式', Object.entries(kinds).map(([value, label]) => ({value, label})), r.trigger.type, 'rule-kind');
@@ -125,17 +125,17 @@
             detail.replaceChildren(U.text('h2', isNew ? '新建规则' : r.name), U.text('p', `${botId} · 修订 ${set.revision} · ${r.id}`, 'plugin-muted'),
                 U.el('div', {id: 'rules-dirty', class: 'plugin-muted'}),
                 U.el('div', {class: 'rules-form'}, [name, kind, keyword, source, groups,
-                    U.text('p', '留空表示所有群，不影响 C2C；所有条件须同时满足。', 'plugin-muted'),
-                    reply, U.text('p', '占位符：{用户ID}、{群ID}、{BotID}、{消息内容}；展开上限 8192 字节。', 'plugin-muted'),
-                    priority, U.text('p', '同优先级按 ID 排序；每条消息最多尝试回复 3 次。', 'plugin-muted'),
+                    U.text('p', '留空表示所有群，不影响 C2C；所有条件须同时满足', 'plugin-muted'),
+                    reply, U.text('p', '占位符：{用户ID}、{群ID}、{BotID}、{消息内容}；展开上限 8192 字节', 'plugin-muted'),
+                    priority, U.text('p', '同优先级按 ID 排序；每条消息最多尝试回复 3 次', 'plugin-muted'),
                     U.el('label', {class: 'rules-switch-label'}, [enabled, U.text('span', '启用（保存后生效）')]), stop]), actions, testPanel());
             dirtyLabel(); U.enter(detail);
         }
         function proposed(temporaryEnable = false) {
-            if (!draft.name.trim()) throw Error('请填写规则名称。');
-            if (draft.trigger.value === '') throw Error('关键词不能为空，空白按原文匹配。');
-            if (!draft.action.text.trim()) throw Error('回复内容不能为空。');
-            if (!Number.isInteger(draft.priority) || draft.priority < -1000 || draft.priority > 1000) throw Error('优先级必须是 -1000 至 1000 的整数。');
+            if (!draft.name.trim()) throw Error('请填写规则名称');
+            if (draft.trigger.value === '') throw Error('关键词不能为空，空白按原文匹配');
+            if (!draft.action.text.trim()) throw Error('回复内容不能为空');
+            if (!Number.isInteger(draft.priority) || draft.priority < -1000 || draft.priority > 1000) throw Error('优先级必须是 -1000 至 1000 的整数');
             const rule = U.clone(draft); if (temporaryEnable) rule.enabled = true;
             return [...set.rules.filter(old => old.id !== rule.id), rule];
         }
@@ -152,17 +152,17 @@
         }
         async function save() {
             let next; try {next = proposed();} catch (error) {U.notice(feedback, error.message, 'error'); return;}
-            await commit(next, selectedId, draft.enabled ? '已保存并启用。' : '已保存，未启用。');
+            await commit(next, selectedId, draft.enabled ? '已保存并启用' : '已保存，未启用');
         }
         async function toggle() {
             if (scope.busy || !await U.mayLeave()) return;
             const id = selectedId, old = set.rules.find(rule => rule.id === id);
-            await commit(set.rules.map(rule => rule.id === id ? {...rule, enabled: !old.enabled} : rule), id, old.enabled ? '已禁用。' : '已启用。');
+            await commit(set.rules.map(rule => rule.id === id ? {...rule, enabled: !old.enabled} : rule), id, old.enabled ? '已禁用' : '已启用');
         }
         async function remove() {
             if (scope.busy || !await U.mayLeave()) return;
-            try {await mdui.confirm({closeOnEsc: true, headline: '删除规则？', description: '删除后无法恢复。', confirmText: '确认删除', cancelText: '取消'});} catch {return;}
-            await commit(set.rules.filter(rule => rule.id !== selectedId), '', '规则已删除。');
+            try {await mdui.confirm({closeOnEsc: true, headline: '删除规则？', description: '删除后无法恢复', confirmText: '确认删除', cancelText: '取消'});} catch {return;}
+            await commit(set.rules.filter(rule => rule.id !== selectedId), '', '规则已删除');
         }
         function testPanel() {
             const output = U.el('div', {id: 'rules-test-result', 'aria-live': 'polite'});
@@ -175,8 +175,8 @@
                 if (scope.busy) return;
                 let payload;
                 try {
-                    if (!message.value) throw Error('请输入模拟消息。');
-                    if (source.value === 'group' && !group.value.trim()) throw Error('群聊测试需要群 ID。');
+                    if (!message.value) throw Error('请输入模拟消息');
+                    if (source.value === 'group' && !group.value.trim()) throw Error('群聊测试需要群 ID');
                     payload = {message: message.value, source: source.value, group_id: source.value === 'group' ? group.value.trim() : '', user_id: user.value.trim()};
                     if (draftMode) payload.rules = proposed(true);
                 } catch (error) {U.notice(output, error.message, 'error'); return;}
@@ -185,7 +185,7 @@
                     const result = await scope.request(path() + '/test', {method: 'POST', body: payload});
                     if (!scope.current()) return;
                     output.className = ''; output.replaceChildren(U.text('h4', `${result.draft ? '草稿' : '已保存规则'} · 修订 ${result.revision} · ${result.attempts} 次捕获回复`));
-                    if (result.skip_reason) output.append(U.text('p', result.skip_reason === 'builtin_command' ? '内置命令优先，本次跳过规则。' : result.skip_reason, 'plugin-warning'));
+                    if (result.skip_reason) output.append(U.text('p', result.skip_reason === 'builtin_command' ? '内置命令优先，本次跳过规则' : result.skip_reason, 'plugin-warning'));
                     for (const [index, trace] of result.traces.entries()) {
                         const card = U.el('section', {class: 'rules-trace', 'data-trace-rule': trace.rule_id}, [U.text('h4', `${index + 1}. ${trace.name} · 优先级 ${trace.priority}`),
                             U.text('p', statuses[trace.status] || trace.status), U.text('p', trace.rule_id, 'plugin-muted')]);
@@ -194,13 +194,13 @@
                         if (trace.reply_text) card.append(U.text('pre', trace.reply_text));
                         output.append(card);
                     }
-                    if (!result.traces.length) output.append(U.text('p', '暂无规则。'));
+                    if (!result.traces.length) output.append(U.text('p', '暂无规则'));
                     U.enter(output);
                 } catch (error) {if (scope.current()) U.notice(output, U.errorMessage(error), 'error');}
                 finally {scope.busy = false; if (scope.current()) U.controlsBusy(container, false);}
             };
             return U.el('section', {class: 'plugin-section rules-test'}, [U.text('h3', '规则测试'),
-                U.text('p', '仅模拟回复，不会发送 QQ 消息。', 'plugin-muted'),
+                U.text('p', '仅模拟回复，不会发送 QQ 消息', 'plugin-muted'),
                 U.help('测试说明', ['草稿测试会临时启用此规则，不保存修改。其他规则的状态、优先级和停止策略保持不变；不调用插件。']),
                 message, source, group, user, U.el('div', {class: 'plugin-actions'}, [
                     U.button('测试草稿（临时启用）', () => test(true), 'rule-test-draft', 'filled'),

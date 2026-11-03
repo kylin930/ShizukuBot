@@ -8,9 +8,13 @@
     <link rel="stylesheet" href="https://unpkg.com/mdui@2.1.5/mdui.css">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons|Material+Icons+Outlined" rel="stylesheet">
     <link href="/static/css/app.css" rel="stylesheet">
+    <script src="https://unpkg.com/mdui@2.1.5/mdui.global.js"></script>
+    <script src="/appearance/bootstrap.js"></script>
+    <script src="/static/js/appearance.js"></script>
 </head>
 <body>
-    <img class="page-background" src="https://teachermate.oss-cn-qingdao.aliyuncs.com/vokMW-1750340487715-nekoaft_N02_a.png" alt="" aria-hidden="true" referrerpolicy="no-referrer">
+    <img class="page-background" data-default-src="https://teachermate.oss-cn-qingdao.aliyuncs.com/vokMW-1750340487715-nekoaft_N02_a.png" alt="" aria-hidden="true" referrerpolicy="no-referrer">
+    <script>AppearanceUI.attachBackground();</script>
     <mdui-layout full-height>
 
         <!-- 顶部应用栏 -->
@@ -117,7 +121,6 @@
 
     </mdui-layout>
 
-    <script src="https://unpkg.com/mdui@2.1.5/mdui.global.js"></script>
     <script src="https://unpkg.com/chart.js"></script>
     <script src="/static/js/community.js"></script>
     <script src="/static/js/plugin-common.js"></script>
@@ -125,6 +128,7 @@
     <script src="/static/js/plugins-page.js"></script>
     <script src="/static/js/sandbox-page.js"></script>
     <script src="/static/js/rules-page.js"></script>
+    <script src="/static/js/preferences.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>
