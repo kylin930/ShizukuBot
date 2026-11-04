@@ -21,7 +21,7 @@
         const sidebar = U.el('mdui-card', {variant: 'outlined', class: 'plugin-sidebar'}, [search, filter, list]);
         container.replaceChildren(U.el('div', {class: 'plugin-page-surface rules-page'}, [
             U.text('h1', '规则', 'page-title'),
-            U.help('规则说明', ['支持完全匹配、包含和前缀；区分大小写，保留空白。', '优先级高的规则先执行；可限定群聊或 C2C 范围。保存后生效。', '停止策略只影响后续规则。内置命令优先；规则与插件可能重复回复。']),
+            U.help('规则说明', ['支持完全匹配、包含和前缀；区分大小写，保留空白', '优先级高的规则先执行；可限定群聊或 C2C 范围；保存后生效', '停止策略只影响后续规则；内置命令优先；规则与插件可能重复回复']),
             U.el('div', {class: 'plugin-toolbar'}, [botSelect, create, refresh]), feedback,
             U.el('div', {class: 'plugin-workspace'}, [sidebar, detail]),
         ]));
@@ -38,7 +38,7 @@
             if (checkDirty && !await U.mayLeave()) return;
             const token = ++generation;
             draft = null; isNew = false; create.disabled = true; sidebar.inert = detail.inert = true;
-            if (!set) detail.replaceChildren(U.text('p', '正在加载规则…')); U.notice(feedback, '正在加载规则…', 'loading');
+            if (!set) U.replaceContent(detail,U.text('p', '正在加载规则…')); U.notice(feedback, '正在加载规则…', 'loading');
             try {
                 const bots = (await scope.request('/api/bots')).sort((a, b) => a.id.localeCompare(b.id));
                 if (!scope.current() || token !== generation) return;
@@ -46,7 +46,7 @@
                 botSelect.replaceChildren(...bots.map(bot => U.el('mdui-menu-item', {value: bot.id, text: `${bot.name || bot.id} · ${bot.id}`})));
                 botSelect.value = botId; botSelect.disabled = !botId;
                 if (!botId) {
-                    detail.inert = false; list.replaceChildren(); detail.replaceChildren(U.text('p', '请先添加机器人'));
+                    detail.inert = false; list.replaceChildren(); U.replaceContent(detail,U.text('p', '请先添加机器人'));
                     U.notice(feedback, '暂无机器人，请先添加'); return;
                 }
                 const next = await scope.request(path());
@@ -55,7 +55,7 @@
             } catch (error) {
                 if (!scope.current() || token !== generation) return;
                 U.notice(feedback, U.errorMessage(error), 'error');
-                detail.inert = false; detail.replaceChildren(U.text('p', '无法加载规则，请刷新重试'));
+                detail.inert = false; U.replaceContent(detail,U.text('p', '无法加载规则，请刷新重试'));
             }
         }
         function apply(next, prefer) {
@@ -102,7 +102,7 @@
             scope.on(node, 'input', () => {change(node.value); dirtyLabel();}); return node;
         }
         function renderDetail() {
-            if (!draft) {detail.replaceChildren(U.text('p', '选择或新建规则')); return;}
+            if (!draft) {U.replaceContent(detail,U.text('p', '选择或新建规则')); return;}
             const r = draft;
             const name = field('rule-name', '规则名称（最多 128 字节）', r.name, v => {r.name = v;});
             const kind = U.select('触发方式', Object.entries(kinds).map(([value, label]) => ({value, label})), r.trigger.type, 'rule-kind');
@@ -122,7 +122,7 @@
                 U.button('重置', async () => {if (await U.mayLeave()) {selectRule(set.rules.find(rule => rule.id === selectedId)); renderList();}}, 'rule-reset'),
             ]);
             if (!isNew) actions.append(U.button(r.enabled ? '立即禁用' : '立即启用', toggle, 'rule-toggle'), U.button('删除规则', remove, 'rule-delete'));
-            detail.replaceChildren(U.text('h2', isNew ? '新建规则' : r.name), U.text('p', `${botId} · 修订 ${set.revision} · ${r.id}`, 'plugin-muted'),
+            U.replaceContent(detail,U.text('h2', isNew ? '新建规则' : r.name), U.text('p', `${botId} · 修订 ${set.revision} · ${r.id}`, 'plugin-muted'),
                 U.el('div', {id: 'rules-dirty', class: 'plugin-muted'}),
                 U.el('div', {class: 'rules-form'}, [name, kind, keyword, source, groups,
                     U.text('p', '留空表示所有群，不影响 C2C；所有条件须同时满足', 'plugin-muted'),
@@ -147,7 +147,7 @@
                 if (!scope.current()) return;
                 apply(next, selected); U.notice(feedback, message, 'success');
             } catch (error) {
-                if (scope.current()) U.notice(feedback, error.code === 409 ? '版本冲突，规则已被其他操作更新。草稿已保留，请复制后刷新。' : U.errorMessage(error), 'error');
+                if (scope.current()) U.notice(feedback, error.code === 409 ? '版本冲突，规则已被其他操作更新；草稿已保留，请复制后刷新' : U.errorMessage(error), 'error');
             } finally {scope.busy = false; if (scope.current()) U.controlsBusy(container, false);}
         }
         async function save() {
@@ -201,7 +201,7 @@
             };
             return U.el('section', {class: 'plugin-section rules-test'}, [U.text('h3', '规则测试'),
                 U.text('p', '仅模拟回复，不会发送 QQ 消息', 'plugin-muted'),
-                U.help('测试说明', ['草稿测试会临时启用此规则，不保存修改。其他规则的状态、优先级和停止策略保持不变；不调用插件。']),
+                U.help('测试说明', ['草稿测试会临时启用此规则，不保存修改；其他规则的状态、优先级和停止策略保持不变；不调用插件']),
                 message, source, group, user, U.el('div', {class: 'plugin-actions'}, [
                     U.button('测试草稿（临时启用）', () => test(true), 'rule-test-draft', 'filled'),
                     U.button('测试已保存规则', () => test(false), 'rule-test-saved'),

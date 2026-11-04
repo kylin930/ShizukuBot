@@ -36,7 +36,7 @@
             const version = ++revision;
             editor = null; sidebar.inert = detail.inert = true;
             detail.setAttribute('aria-busy', 'true');
-            if (!plugins.length) detail.replaceChildren(U.text('p', '加载插件…'));
+            if (!plugins.length) U.replaceContent(detail,U.text('p', '加载插件…'));
             U.notice(feedback, '加载插件…', 'loading');
             try {
                 const nextBots = await scope.request('/api/bots');
@@ -55,7 +55,7 @@
             } catch (error) {
                 if (!scope.current() || version !== revision) return;
                 loadError = U.errorMessage(error); U.notice(feedback, loadError, 'error');
-                detail.inert = false; detail.setAttribute('aria-busy', 'false'); detail.replaceChildren(U.text('p', '无法加载插件，请重试')); return false;
+                detail.inert = false; detail.setAttribute('aria-busy', 'false'); U.replaceContent(detail,U.text('p', '无法加载插件，请重试')); return false;
             }
         }
         function renderList() {
@@ -81,7 +81,7 @@
         }
         function renderDetail() {
             const plugin = plugins.find(p => p.id === selectedId);
-            if (!plugin) {detail.replaceChildren(U.text('p', '选择插件查看详情')); return;}
+            if (!plugin) {U.replaceContent(detail,U.text('p', '选择插件查看详情')); return;}
             U.context.pluginId = plugin.id;
             const actions = U.el('div', {class: 'plugin-actions'});
             const configHost = U.el('section', {class: 'plugin-section'});
@@ -107,20 +107,20 @@
             restart.disabled = !botId || !plugin.allowed || !plugin.running;
             actions.append(toggle, restart, U.button('沙盒测试', () => U.openSandbox(botId, plugin.id), 'plugin-sandbox'));
             runtime.append(U.text('h3', '运行状态'), actions,
-                U.help('重启说明', ['仅重启此插件实例。源码更新需要重新构建和部署。']));
+                U.help('重启说明', ['仅重启此插件实例；源码更新需要重新构建和部署']));
             if (plugin.restart_required) runtime.append(U.text('p', '配置未应用，请重启实例', 'plugin-warning'));
             if (plugin.last_error) runtime.append(U.text('h4', '最近一次错误'), U.errorDetails(plugin.last_error));
-            if (botId && !plugin.allowed) runtime.append(U.text('p', '此机器人已排除此插件。请在机器人配置中允许后再启用。', 'plugin-warning'));
+            if (botId && !plugin.allowed) runtime.append(U.text('p', '此机器人已排除此插件；请在机器人配置中允许后再启用', 'plugin-warning'));
             const advanced = U.el('details', {class: 'plugin-section'}, [U.text('summary', '高级信息与数据备份'),
                 U.text('p', '权限：' + (plugin.permissions || []).join(', ')), U.text('h4', 'Manifest'),
                 U.text('pre', JSON.stringify(Object.fromEntries(['api_version','id','name','version','description','author','runtime','permissions','config_schema'].map(k => [k, plugin[k]])), null, 2)),
                 U.text('h4', '原始 Schema'), U.text('pre', JSON.stringify(plugin.config_schema, null, 2)),
-                U.text('p', '备份含私有配置和状态。仅能恢复到空数据范围；恢复后保持禁用，不覆盖已有数据。'),
+                U.text('p', '备份含私有配置和状态；仅能恢复到空数据范围；恢复后保持禁用，不覆盖已有数据'),
                 U.button('备份配置与状态', () => backup(plugin.id), 'plugin-backup'),
             ]);
             const file = U.el('input', {type: 'file', accept: '.json,application/json', id: 'plugin-restore-file', 'aria-label': '选择插件数据备份'});
             advanced.append(file, U.button('恢复数据备份', () => restore(file), 'plugin-restore'));
-            detail.replaceChildren(U.text('h2', plugin.name), U.el('p', {text: plugin.description || '', hidden: !plugin.description}), overview, configHost, runtime, advanced);
+            U.replaceContent(detail,U.text('h2', plugin.name), U.el('p', {text: plugin.description || '', hidden: !plugin.description}), overview, configHost, runtime, advanced);
             U.enter(detail);
         }
         async function mutate(action, plugin) {

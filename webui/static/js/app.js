@@ -108,15 +108,7 @@ function renderPage() {
         if (epoch === pageEpoch && error.name !== 'AbortError') showSnackbar('页面加载失败：' + error.message);
     });
     window.AdminUI.enter(content, true);
-    // MDUI 2 text fields await their own updateComplete before sizing. Keep the
-    // previous view connected but hidden through native updates and the next frame.
-    // This does not delay the new renderer or its requests, and uses no timer.
-    if (previous) {
-        const fields = [...previous.querySelectorAll('mdui-text-field')];
-        Promise.allSettled(fields.map(async field => {
-            do {await field.updateComplete;} while (field.isUpdatePending);
-        })).then(() => requestAnimationFrame(() => previous.remove()));
-    }
+    if(previous)window.AdminUI.retire(previous);
 }
 
 // ==================== 统计页 ====================
@@ -599,11 +591,15 @@ async function renderConfig(container) {
         </mdui-card>
 
         <!-- 内置指令回复模板 -->
-        <mdui-card variant="outlined" class="config-card">
-            <div style="font-size:16px;font-weight:500;margin-bottom:16px">内置指令回复</div>
+        <mdui-card variant="outlined" class="config-card builtin-controls-card">
+            <div style="font-size:16px;font-weight:500;margin-bottom:16px">内置指令</div>
             <div style="display:flex;flex-direction:column;gap:16px">
+                <label class="builtin-switch-label"><mdui-switch id="cmd-help-enabled"></mdui-switch><span>启用 /help</span></label>
                 <mdui-text-field label="/help 回复" id="cmd-help" rows="3" help-text="占位符：{指令列表} {bot名称}"></mdui-text-field>
+                <label class="builtin-switch-label"><mdui-switch id="cmd-status-enabled"></mdui-switch><span>启用 /status</span></label>
                 <mdui-text-field label="/status 回复" id="cmd-status" rows="3" help-text="占位符：{bot名称} {接收消息数} {发送消息数}"></mdui-text-field>
+                <label class="builtin-switch-label"><mdui-switch id="cmd-shizuku-in-help"></mdui-switch><span>在 /help 指令列表中显示 #shizuku</span></label>
+                <div id="builtin-help-hint"></div>
                 <mdui-text-field label="#shizuku 回复" id="cmd-shizuku" rows="4" help-text="占位符：{core版本} {运行时间} {操作系统} {go版本} {bot名称}"></mdui-text-field>
             </div>
         </mdui-card>
@@ -631,6 +627,7 @@ async function renderConfig(container) {
         </div>
     `;
 
+    document.getElementById('builtin-help-hint').append(AdminUI.help('#shizuku 始终启用',['此开关只调整 {指令列表} 中的显示，不影响 #shizuku 的使用', '内置指令关闭后，同名规则和插件仍可处理消息']));
     await loadConfig();
     if (epoch !== pageEpoch) return;
 
@@ -679,6 +676,9 @@ async function loadConfig() {
 
             // 填充内置指令回复模板
             const builtin = configData.builtin_commands || {};
+            document.getElementById('cmd-help-enabled').checked = builtin.help_enabled !== false;
+            document.getElementById('cmd-status-enabled').checked = builtin.status_enabled !== false;
+            document.getElementById('cmd-shizuku-in-help').checked = builtin.show_shizuku_in_help !== false;
             const cmdHelp = document.getElementById('cmd-help');
             const cmdStatus = document.getElementById('cmd-status');
             const cmdShizuku = document.getElementById('cmd-shizuku');
@@ -803,6 +803,9 @@ async function saveConfig(raw = false) {
         const cmdStatus = document.getElementById('cmd-status');
         const cmdShizuku = document.getElementById('cmd-shizuku');
         configData.builtin_commands = {
+            help_enabled:document.getElementById('cmd-help-enabled').checked,
+            status_enabled:document.getElementById('cmd-status-enabled').checked,
+            show_shizuku_in_help:document.getElementById('cmd-shizuku-in-help').checked,
             help: cmdHelp ? cmdHelp.value : '',
             status: cmdStatus ? cmdStatus.value : '',
             shizuku: cmdShizuku ? cmdShizuku.value : ''
@@ -1046,7 +1049,7 @@ async function renderAbout(container) {
         U.text('p','基于 Go 的 QQ 官方机器人框架，提供多 Bot 管理、Go 插件、规则和 WebUI','about-description'),
         U.text('h2','版本与运行信息'),info,links,
         U.text('h2','技术栈'),U.text('p','Go · botgo-plus · MDUI 2 · SQLite · Chart.js'),
-        U.text('h2','开源与许可'),U.text('p','ShizukuBot 使用 Apache License 2.0。感谢上述开源项目及其贡献者。','about-description')]);
+        U.text('h2','开源与许可'),U.text('p','ShizukuBot 使用 Apache License 2.0；感谢上述开源项目及其贡献者','about-description')]);
     container.replaceChildren(U.text('div','关于','page-title'),U.el('div',{class:'about-container'},[card]));
     try {const result=await scope.request('/api/system');if(!scope.current())return;
         for(const [label,value] of [['Core',result.core_version],['WebUI',result.webui_version],['Go',result.go_version],['系统',result.platform],['运行时间',result.uptime],['SDK',result.sdk+' '+result.sdk_version]])info.append(U.text('dt',label),U.text('dd',value));
@@ -1177,17 +1180,18 @@ function renderQQDiagnostics(bot) {
             <dt>最近回复</dt><dd>${time(d.last_reply_at)} <small>平台接受</small></dd>
             <dt>最近错误</dt><dd>${escapeHtml(lastError)}</dd>
         </dl>
-        <details class="ui-help"><summary>详细诊断</summary>
+        <section class="qq-detail"><h4>详细诊断</h4>
             <p>事件类型：${escapeHtml(d.last_event_type || '暂无记录')}；消息 ID：${d.last_event_at ? (d.has_message_id ? '已收到' : '本事件未提供') : '未检测'}</p>
             <p>HTTP：${escapeHtml(String(d.http_status || '未检测'))}；平台码：${escapeHtml(String(d.platform_code || '未检测'))}；Trace ID：${escapeHtml(d.trace_id || '暂无记录')}</p>
             <p>最近发送错误：${escapeHtml(failure || '暂无记录')} · ${time(d.last_send_failure_at)}</p>
             <p>最近回调/连接错误：${escapeHtml(d.last_transport_error || '暂无记录')} · ${time(d.last_transport_error_at)}</p>
-        </details>
-        <details class="ui-help"><summary>接入帮助</summary>
-            <p>回调地址：/webhook/${escapeHtml(bot.id)}。检查 HTTPS、事件权限和测试成员，再发送 /ping。</p>
-            <p>运行中不代表已收到回调；平台接受不等于 QQ 客户端送达，需在客户端确认。沙盒结果不计入此处。</p>
-            <p>建议使用 Webhook；WebSocket 取决于平台授权。IP 白名单和目标权限需在平台检查。</p>
-        </details>
+        </section>
+        <mdui-tooltip class="ui-help" variant="rich" trigger="hover focus click" headline="接入帮助">
+            <mdui-button variant="text" icon="help_outline" aria-label="接入帮助">接入帮助</mdui-button>
+            <div slot="content">回调地址：/webhook/${escapeHtml(bot.id)}；检查 HTTPS、事件权限和测试成员，再发送 /ping<br><br>
+            运行中不代表已收到回调；平台接受不等于 QQ 客户端送达，需在客户端确认；沙盒结果不计入此处<br><br>
+            建议使用 Webhook；WebSocket 取决于平台授权；IP 白名单和目标权限需在平台检查</div>
+        </mdui-tooltip>
     </details>`;
 }
 

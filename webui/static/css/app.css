@@ -783,8 +783,7 @@ mdui-button:focus-visible, mdui-button-icon:focus-visible, summary:focus-visible
 .page-title { line-height:1.4; }
 .page-title mdui-button { vertical-align:middle; }
 .ui-help { margin-block:12px; font-size:13px; color:rgb(var(--mdui-color-on-surface-variant)); overflow-wrap:anywhere; }
-.ui-help summary, .qq-diagnostics > summary { cursor:pointer; padding-block:6px; width:fit-content; }
-.ui-help p { margin:8px 0; max-width:76ch; line-height:1.6; }
+.qq-diagnostics > summary { cursor:pointer; padding-block:6px; width:fit-content; }
 .qq-diagnostics { margin-top:12px; font-size:14px; }
 .qq-summary { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:8px 16px; line-height:1.6; }
 .qq-summary dt, .qq-summary small { color:rgb(var(--mdui-color-on-surface-variant)); }
@@ -843,3 +842,14 @@ mdui-button:focus-visible, mdui-button-icon:focus-visible, summary:focus-visible
 .chart-container {min-width:0;}
 .chart-container canvas {max-width:100%;}
 @media(max-width:839px){.bots-card {display:block;max-width:100%;box-sizing:border-box;}.bot-item {gap:12px;}}
+
+/* Native rich tooltips support pointer, keyboard focus and touch. */
+mdui-tooltip.ui-help {display:inline-block;margin-block:4px;vertical-align:middle;}
+mdui-tooltip.ui-help::part(popup) {max-width:min(320px,calc(100vw - 32px));}
+mdui-tooltip.ui-help::part(content) {white-space:pre-line;overflow-wrap:anywhere;max-height:50vh;overflow:auto;line-height:1.6;}
+.builtin-switch-label {display:flex;align-items:center;gap:12px;line-height:1.5;}
+.qq-detail {margin-block:12px;font-size:13px;color:rgb(var(--mdui-color-on-surface-variant));overflow-wrap:anywhere;}
+.qq-detail h4 {margin-bottom:8px;}
+.detail-view {display:contents;}
+.builtin-controls-card {display:block;scroll-margin-block-start:80px;}
+@media(prefers-reduced-motion:reduce){mdui-tooltip.ui-help {--mdui-motion-duration-short4:0ms;}}

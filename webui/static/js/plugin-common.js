@@ -56,6 +56,32 @@
         animation.finished.catch(() => {}).finally(() => {motions.delete(animation); if (moving.get(node) === animation) moving.delete(node);});
         return animation;
     }
+    // Let native component work finish while the new content is already visible.
+    function retire(node) {
+        node.hidden=true;node.inert=true;node.classList.add('ui-retiring');
+        for(const item of [node,...node.querySelectorAll('*')]){
+            for(const name of item.getAttributeNames())if(name==='id'||name.startsWith('data-'))item.removeAttribute(name);
+        }
+        const closing=[...node.querySelectorAll('mdui-tooltip')].map(tooltip=>{
+            const popup=tooltip.shadowRoot?.querySelector('[part="popup"]');
+            if(!tooltip.open&&popup?.hidden!==false)return Promise.resolve();
+            const done=new Promise(resolve=>tooltip.addEventListener('closed',resolve,{once:true}));
+            tooltip.open=false;tooltip.disabled=true;return done;
+        });
+        Promise.allSettled(closing).then(async()=>{
+            await Promise.allSettled([...node.querySelectorAll('mdui-text-field, mdui-tooltip')].map(async field=>{
+                do{await field.updateComplete;}while(field.isUpdatePending);
+            }));
+            // Scroll handlers scheduled by native components also run in this frame.
+            // Detach at the following task boundary, after those callbacks finish.
+            requestAnimationFrame(()=>setTimeout(()=>node.remove(),0));
+        });
+    }
+    function replaceContent(root,...children){
+        const old=[...root.children].filter(node=>!node.classList.contains('ui-retiring'));
+        const view=el('div',{class:'detail-view'},children);
+        root.prepend(view);for(const node of old)retire(node);
+    }
     function activateList(list, key, id) {
         for (const item of list.children) if (item.dataset[key]) item.active = item.dataset[key] === id;
     }
@@ -72,7 +98,9 @@
         host.append(text('span', message));
     }
     function help(label, paragraphs) {
-        return el('details', {class: 'ui-help'}, [text('summary', label), ...paragraphs.map(value => text('p', value))]);
+        const trigger = el('mdui-button', {variant:'text',icon:'help_outline',text:label,'aria-label':label,'aria-description':paragraphs.join('；')});
+        const tooltip = el('mdui-tooltip', {class:'ui-help',variant:'rich',trigger:'hover focus click',placement:'auto',headline:label,content:paragraphs.join('\n\n')}, [trigger]);
+        return tooltip;
     }
     function errorMessage(error) {
         if (error.status === 401) return '登录已过期，请重新登录';
@@ -128,6 +156,7 @@
             if (trigger && root.contains(trigger)) {root.dataset.busyButton = trigger.id; trigger.loading = true;}
         }
         root.querySelectorAll('mdui-button, mdui-button-icon, mdui-select, mdui-text-field, mdui-switch, mdui-checkbox, textarea, input').forEach(control => {
+            if(control.closest('.ui-retiring'))return;
             if (busy) {if (!Object.hasOwn(control.dataset, 'wasDisabled')) control.dataset.wasDisabled = String(Boolean(control.disabled)); control.disabled = true;}
             else if (Object.hasOwn(control.dataset, 'wasDisabled')) {control.disabled = control.dataset.wasDisabled === 'true'; delete control.dataset.wasDisabled;}
         });
@@ -156,6 +185,6 @@
     }
     // Neutral page helpers share lifecycle guards without exposing plugin selection state.
     window.AdminUI = {el, text, clone, canonical, button, select, notice, request, begin, dispose, mayLeave,
-        controlsBusy, errorMessage, errorDetails, help, enter, activateList, reveal};
+        controlsBusy, errorMessage, errorDetails, help, enter, activateList, reveal, retire, replaceContent};
     window.PluginUI = {...window.AdminUI, JSONEditor, context, openSandbox};
 })();

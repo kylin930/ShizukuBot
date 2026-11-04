@@ -13,7 +13,7 @@
             let safe = false;
             try {const parsed = new URL(source); safe = ['http:','https:'].includes(parsed.protocol) && !parsed.username && !parsed.password;} catch { /* Display invalid URLs only as text. */ }
             if (safe) card.append(U.el('a', {href: source, target: '_blank', rel: 'noopener noreferrer', text: source, referrerPolicy: 'no-referrer'}));
-            else {card.append(U.text('pre', source.slice(0, 4096)), U.text('small', '此链接不提供可点击预览')); if (source.length > 4096) card.append(U.el('details', {}, [U.text('summary', '链接已截断，展开完整内容'), U.text('pre', source)]));}
+            else card.append(U.text('pre', source), U.text('small', '此链接不提供可点击预览，完整内容可滚动查看'));
         }
         if (reply.keyboard != null) card.append(U.text('pre', typeof reply.keyboard === 'string' ? reply.keyboard : JSON.stringify(reply.keyboard, null, 2)));
         if (!names.has(kind)) card.append(U.text('pre', JSON.stringify(reply, null, 2)));
@@ -61,9 +61,9 @@
         function updateNote() {
             const plugin = plugins.find(p => p.id === pluginSelect.value);
             U.notice(note, !independent() && plugin?.enabled === false ? '此插件未启用，仍可测试' : '');
-            scopeHelp.querySelectorAll('p').forEach(node => node.remove());
-            scopeHelp.append(U.text('p', independent() ? '使用默认配置，不读取机器人配置。' : '使用此机器人已保存的插件配置，不包含表单中的未保存修改。'),
-                U.text('p', '每次测试使用独立临时状态，不启用插件，也不请求外部媒体'));
+            scopeHelp.content = [independent() ? '使用默认配置，不读取机器人配置' : '使用此机器人已保存的插件配置，不包含表单中的未保存修改',
+                '每次测试使用独立临时状态，不启用插件，也不请求外部媒体'].join('\n\n');
+            scopeHelp.querySelector('mdui-button').setAttribute('aria-description',scopeHelp.content);
 
         }
         async function loadPlugins() {
@@ -101,7 +101,7 @@
                     else if (data.replies?.length) data.replies.forEach(reply => appendReply(block, {kind:'text',text:reply}));
                     (data.executions || []).forEach(execution => appendExecution(block, execution));
                     (data.errors || []).forEach(error => block.append(U.errorDetails(error)));
-                    if (!data.executions?.length) block.append(U.text('p', '没有执行插件，请选择插件重试。“全部”仅运行已启用且允许的插件。'));
+                    if (!data.executions?.length) block.append(U.text('p', '没有执行插件，请选择插件重试；“全部”仅运行已启用且允许的插件'));
                     block.append(U.text('small', `本次请求耗时 ${turn.elapsed.toFixed(1)} ms`, 'plugin-muted'));
                 }
                 if (turn.error) block.append(U.errorDetails(turn.error));
