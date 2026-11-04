@@ -1,0 +1,13 @@
+{
+  "saved": {
+    "help_enabled": false,
+    "status_enabled": false,
+    "show_shizuku_in_help": false,
+    "help": "可用指令列表：\n{指令列表}\n\n输入 /指令名 查看更详细的信息",
+    "status": "{bot名称} 运行中\n收到消息：{接收消息数}\n发送消息：{发送消息数}\nCPU：{CPU占用}\n内存：{内存占用}",
+    "shizuku": "ShizukuBot 框架信息\n版本：v{core版本}\n运行时间：{运行时间}\n系统：{操作系统}\nGo版本：{go版本}"
+  },
+  "focusEscapeHoverTouch": true,
+  "routeTeardown": true,
+  "browserErrors": []
+}

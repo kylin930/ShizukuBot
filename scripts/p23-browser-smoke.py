@@ -19,7 +19,8 @@ async def check(base, password, artifacts, chromium):
         await page.wait_for_selector('.qq-diagnostics')
         assert await page.evaluate('Boolean(customElements.get("mdui-card"))')
         await page.locator('.qq-diagnostics summary').first.click()
-        await page.locator('.qq-diagnostics').first.get_by_text('接入帮助', exact=True).click()
+        await page.locator('.qq-diagnostics').first.locator('mdui-tooltip > mdui-button').click()
+        await page.locator('.qq-diagnostics').first.locator('mdui-tooltip [part=popup]').wait_for(state='visible')
         text = await page.locator('.qq-diagnostics').first.inner_text()
         assert '暂无记录' in text and '平台接受不等于 QQ 客户端送达' in text
         assert '本地沙盒回复成功' not in text
