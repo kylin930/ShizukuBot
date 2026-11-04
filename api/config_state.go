@@ -24,6 +24,16 @@ func (r *Router) configSnapshot() *config.Config {
 }
 func cloneConfig(c *config.Config) *config.Config {
 	out := *c
+	cloneFlag := func(v *bool) *bool {
+		if v == nil {
+			return nil
+		}
+		copy := *v
+		return &copy
+	}
+	out.BuiltinCommands.HelpEnabled = cloneFlag(c.BuiltinCommands.HelpEnabled)
+	out.BuiltinCommands.StatusEnabled = cloneFlag(c.BuiltinCommands.StatusEnabled)
+	out.BuiltinCommands.ShowShizukuInHelp = cloneFlag(c.BuiltinCommands.ShowShizukuInHelp)
 	out.Bots = append([]config.BotConfig(nil), c.Bots...)
 	for i := range out.Bots {
 		out.Bots[i].Plugins = append([]string(nil), c.Bots[i].Plugins...)

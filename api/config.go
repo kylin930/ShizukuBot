@@ -23,9 +23,12 @@ type ConfigResponse struct {
 	Bots            []BotInfo `json:"bots"`
 	MarketAPI       string    `json:"market_api"`
 	BuiltinCommands struct {
-		Help    string `json:"help"`
-		Status  string `json:"status"`
-		Shizuku string `json:"shizuku"`
+		HelpEnabled       bool   `json:"help_enabled"`
+		StatusEnabled     bool   `json:"status_enabled"`
+		ShowShizukuInHelp bool   `json:"show_shizuku_in_help"`
+		Help              string `json:"help"`
+		Status            string `json:"status"`
+		Shizuku           string `json:"shizuku"`
 	} `json:"builtin_commands"`
 }
 
@@ -42,6 +45,9 @@ func (r *Router) GetConfig(w http.ResponseWriter, req *http.Request) {
 	result.WebUI.Port = snapshot.WebUI.Port
 	// Session signing secret is write-only.
 	result.MarketAPI = snapshot.MarketAPI
+	result.BuiltinCommands.HelpEnabled = config.BuiltinEnabled(snapshot.BuiltinCommands.HelpEnabled)
+	result.BuiltinCommands.StatusEnabled = config.BuiltinEnabled(snapshot.BuiltinCommands.StatusEnabled)
+	result.BuiltinCommands.ShowShizukuInHelp = config.BuiltinEnabled(snapshot.BuiltinCommands.ShowShizukuInHelp)
 	result.BuiltinCommands.Help = snapshot.BuiltinCommands.Help
 	result.BuiltinCommands.Status = snapshot.BuiltinCommands.Status
 	result.BuiltinCommands.Shizuku = snapshot.BuiltinCommands.Shizuku
@@ -67,9 +73,12 @@ func (r *Router) UpdateConfig(w http.ResponseWriter, req *http.Request) {
 		} `json:"webui"`
 		MarketAPI       string `json:"market_api"`
 		BuiltinCommands struct {
-			Help    string `json:"help"`
-			Status  string `json:"status"`
-			Shizuku string `json:"shizuku"`
+			HelpEnabled       *bool  `json:"help_enabled"`
+			StatusEnabled     *bool  `json:"status_enabled"`
+			ShowShizukuInHelp *bool  `json:"show_shizuku_in_help"`
+			Help              string `json:"help"`
+			Status            string `json:"status"`
+			Shizuku           string `json:"shizuku"`
 		} `json:"builtin_commands"`
 	}
 
@@ -119,7 +128,18 @@ func (r *Router) UpdateConfig(w http.ResponseWriter, req *http.Request) {
 			snapshot.WebUI.Password = reqBody.WebUI.Password
 		}
 		snapshot.MarketAPI = reqBody.MarketAPI
-		snapshot.BuiltinCommands = config.BuiltinCommandsConfig{Help: reqBody.BuiltinCommands.Help, Status: reqBody.BuiltinCommands.Status, Shizuku: reqBody.BuiltinCommands.Shizuku}
+		snapshot.BuiltinCommands.Help = reqBody.BuiltinCommands.Help
+		snapshot.BuiltinCommands.Status = reqBody.BuiltinCommands.Status
+		snapshot.BuiltinCommands.Shizuku = reqBody.BuiltinCommands.Shizuku
+		if reqBody.BuiltinCommands.HelpEnabled != nil {
+			snapshot.BuiltinCommands.HelpEnabled = reqBody.BuiltinCommands.HelpEnabled
+		}
+		if reqBody.BuiltinCommands.StatusEnabled != nil {
+			snapshot.BuiltinCommands.StatusEnabled = reqBody.BuiltinCommands.StatusEnabled
+		}
+		if reqBody.BuiltinCommands.ShowShizukuInHelp != nil {
+			snapshot.BuiltinCommands.ShowShizukuInHelp = reqBody.BuiltinCommands.ShowShizukuInHelp
+		}
 		return nil
 	})
 	if err != nil {
@@ -146,6 +166,6 @@ func (r *Router) UpdateConfig(w http.ResponseWriter, req *http.Request) {
 	if reqBody.WebUI.Password != "" {
 		webui.InitSessionStore(reqBody.WebUI.Password)
 	}
-	core.SetCommandTemplates(&core.CommandTemplates{Help: reqBody.BuiltinCommands.Help, Status: reqBody.BuiltinCommands.Status, Shizuku: reqBody.BuiltinCommands.Shizuku})
+	core.ConfigureBuiltinCommands(r.configSnapshot().BuiltinCommands)
 	r.GetConfig(w, req)
 }

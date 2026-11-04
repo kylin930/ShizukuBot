@@ -33,9 +33,12 @@ type BotConfig struct {
 // BuiltinCommandsConfig 内置指令的回复模板（全局一份）
 // 支持占位符替换：{bot名称} 等；/help 支持 {指令列表}，#shizuku 支持 {core版本}/{运行时间}/{操作系统}/{go版本}
 type BuiltinCommandsConfig struct {
-	Help    string `json:"help"`    // /help 回复模板
-	Status  string `json:"status"`  // /status 回复模板
-	Shizuku string `json:"shizuku"` // #shizuku 回复模板
+	HelpEnabled       *bool  `json:"help_enabled,omitempty"`
+	StatusEnabled     *bool  `json:"status_enabled,omitempty"`
+	ShowShizukuInHelp *bool  `json:"show_shizuku_in_help,omitempty"`
+	Help              string `json:"help"`    // /help 回复模板
+	Status            string `json:"status"`  // /status 回复模板
+	Shizuku           string `json:"shizuku"` // #shizuku 回复模板
 }
 
 type Config struct {
@@ -178,3 +181,6 @@ func generateRandomPassword() string {
 	}
 	return string(b)
 }
+
+// Missing flags preserve enabled commands and the existing help listing.
+func BuiltinEnabled(value *bool) bool { return value == nil || *value }

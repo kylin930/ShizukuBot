@@ -55,11 +55,7 @@ func main() {
 	}
 
 	// 注入内置指令回复模板，供运行中的 bot 读取（配置页保存时会热更新）
-	core.SetCommandTemplates(&core.CommandTemplates{
-		Help:    cfg.BuiltinCommands.Help,
-		Status:  cfg.BuiltinCommands.Status,
-		Shizuku: cfg.BuiltinCommands.Shizuku,
-	})
+	core.ConfigureBuiltinCommands(cfg.BuiltinCommands)
 
 	botManager := core.NewBotManager()
 	logManager := botManager.GetLogManager()

@@ -54,7 +54,7 @@ func (r *Router) GetRules(w http.ResponseWriter, req *http.Request) {
 	}
 	set, err := r.rules.Snapshot(req.Context(), bot)
 	if err != nil {
-		InternalErrorResponse(w, "规则读取失败，原文件已保留；请检查规则数据及版本。")
+		InternalErrorResponse(w, "规则读取失败，原文件已保留；请检查规则数据及版本")
 		return
 	}
 	SuccessResponse(w, set)
@@ -84,11 +84,11 @@ func (r *Router) ReplaceRules(w http.ResponseWriter, req *http.Request) {
 	}
 	set, err := r.rules.Replace(req.Context(), bot, *body.Revision, body.Rules)
 	if errors.Is(err, rules.ErrConflict) {
-		JSONResponse(w, 409, "规则已被其他操作更新，请刷新后重新编辑。", map[string]uint64{"revision": set.Revision})
+		JSONResponse(w, 409, "规则已被其他操作更新，请刷新后重新编辑", map[string]uint64{"revision": set.Revision})
 		return
 	}
 	if err != nil {
-		InternalErrorResponse(w, "规则保存失败，原规则仍然有效；请检查存储后重试。")
+		InternalErrorResponse(w, "规则保存失败，原规则仍然有效；请检查存储后重试")
 		return
 	}
 	SuccessResponse(w, set)
@@ -142,7 +142,7 @@ func (r *Router) TestRules(w http.ResponseWriter, req *http.Request) {
 	}
 	out, err := r.rules.Preview(req.Context(), events.Event{BotID: bot, Type: typ, Source: body.Source, GroupID: body.GroupID, UserID: body.UserID, Message: body.Message}, body.Rules)
 	if err != nil {
-		InternalErrorResponse(w, "规则测试未完成，请检查规则存储或重试。")
+		InternalErrorResponse(w, "规则测试未完成，请检查规则存储或重试")
 		return
 	}
 	SuccessResponse(w, out)

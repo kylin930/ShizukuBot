@@ -6,15 +6,19 @@ import (
 	"strings"
 
 	"context"
+	"shizukubot/config"
 	"shizukubot/events"
 	"sync"
 )
 
 // CommandTemplates 内置指令的回复模板（全局一份，由 main 注入，配置页可热更新）
 type CommandTemplates struct {
-	Help    string
-	Status  string
-	Shizuku string
+	DisableHelp       bool
+	DisableStatus     bool
+	HideShizukuInHelp bool
+	Help              string
+	Status            string
+	Shizuku           string
 }
 
 // GlobalCommandTemplates 全局内置指令模板，仿 GlobalLogManager 模式。
@@ -25,7 +29,12 @@ var globalCommandTemplates *CommandTemplates
 func SetCommandTemplates(t *CommandTemplates) {
 	templateMu.Lock()
 	defer templateMu.Unlock()
-	globalCommandTemplates = t
+	if t == nil {
+		globalCommandTemplates = nil
+		return
+	}
+	snapshot := *t
+	globalCommandTemplates = &snapshot
 }
 
 // handleBuiltinCommand 检查并处理内置指令（/help、/status、#shizuku）。
@@ -67,9 +76,15 @@ func (b *Bot) handleBuiltinSnapshot(ctx context.Context, ev events.Event) bool {
 		}
 		switch parts[0] {
 		case "help":
+			if currentTemplates().DisableHelp {
+				return false
+			}
 			b.replyBuiltin(ctx, ev, b.renderHelp())
 			return true
 		case "status":
+			if currentTemplates().DisableStatus {
+				return false
+			}
 			b.replyBuiltin(ctx, ev, b.renderStatus())
 			return true
 		}
@@ -124,14 +139,41 @@ func (b *Bot) renderShizuku() string {
 	return renderTemplate(tmpl, vars)
 }
 
-// collectCommandList 扫描当前 bot 启用的插件图，收集用户自定义指令，拼成多行列表
+// collectCommandList combines enabled builtins with registered plugin commands.
 func (b *Bot) collectCommandList() string {
-	// 内置指令始终列入，方便用户看到
-	all := []string{"/help", "/status", "#shizuku"}
+	settings := currentTemplates()
+	prefix := b.CommandPrefix
+	if prefix == "" {
+		prefix = "/"
+	}
+	all := []string{}
+	if !settings.DisableHelp {
+		all = append(all, prefix+"help")
+	}
+	if !settings.DisableStatus {
+		all = append(all, prefix+"status")
+	}
+	if !settings.HideShizukuInHelp {
+		all = append(all, "#shizuku")
+	}
 	if b.Commands != nil {
 		all = append(all, b.Commands(b.PluginIDs, b.ID)...)
 	}
-	return strings.Join(all, "\n")
+	seen := map[string]bool{}
+	visible := []string{}
+	for _, command := range all {
+		if command == "" || seen[command] || (settings.HideShizukuInHelp && command == "#shizuku") {
+			continue
+		}
+		seen[command] = true
+		visible = append(visible, command)
+	}
+	return strings.Join(visible, "\n")
+}
+
+func ConfigureBuiltinCommands(c config.BuiltinCommandsConfig) {
+	SetCommandTemplates(&CommandTemplates{Help: c.Help, Status: c.Status, Shizuku: c.Shizuku,
+		DisableHelp: !config.BuiltinEnabled(c.HelpEnabled), DisableStatus: !config.BuiltinEnabled(c.StatusEnabled), HideShizukuInHelp: !config.BuiltinEnabled(c.ShowShizukuInHelp)})
 }
 
 // currentTemplates 安全获取全局模板（未注入时返回零值）
@@ -178,5 +220,9 @@ func (b *Bot) MatchesBuiltin(e events.Event) bool {
 		return false
 	}
 	parts = strings.Fields(strings.TrimPrefix(message, prefix))
-	return len(parts) > 0 && (parts[0] == "help" || parts[0] == "status")
+	if len(parts) == 0 {
+		return false
+	}
+	settings := currentTemplates()
+	return (parts[0] == "help" && !settings.DisableHelp) || (parts[0] == "status" && !settings.DisableStatus)
 }
