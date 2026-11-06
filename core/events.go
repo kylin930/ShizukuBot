@@ -105,6 +105,7 @@ func (b *Bot) HandlePayloadAccepted(ctx context.Context, raw []byte) (bool, erro
 	}
 	e.PluginIDs = ids
 	e.Reply = b.replyContext(call, e)
+	e.Act = b.actionContext(call, e)
 	b.recordEvent(e)
 	return true, dispatcher.Dispatch(call, e)
 }

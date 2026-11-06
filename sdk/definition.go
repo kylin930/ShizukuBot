@@ -54,7 +54,8 @@ func (m Manifest) Validate() error {
 	}
 	for _, p := range m.Permissions {
 		switch p {
-		case "events.subscribe", "commands.register", "message.send", "config.read", "state.read", "state.write", "log.write":
+		case "events.subscribe", "commands.register", "message.send", "message.recall",
+			"group.manage", "config.read", "state.read", "state.write", "log.write":
 		default:
 			return errors.New("unknown permission: " + p)
 		}

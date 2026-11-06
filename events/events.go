@@ -24,11 +24,39 @@ const (
 )
 
 // Reply is a transport-independent outgoing message capability request.
+// Mention is an optional target user ID (member_openid for groups, user ID for
+// guilds). Group text replies that mention a user are delivered as Markdown,
+// because QQ only supports user mentions there in Markdown messages.
 type Reply struct {
 	Kind     string `json:"kind"`
 	Text     string `json:"text,omitempty"`
 	URL      string `json:"url,omitempty"`
 	Keyboard string `json:"keyboard,omitempty"`
+	Mention  string `json:"mention,omitempty"`
+}
+
+// ActionKind identifies a management capability request.
+type ActionKind string
+
+const (
+	// ActionRecall removes a message in the current conversation.
+	ActionRecall ActionKind = "recall"
+	// ActionMute restricts one member for Action.Seconds.
+	ActionMute ActionKind = "mute"
+	// ActionUnmute clears a member restriction.
+	ActionUnmute ActionKind = "unmute"
+	// ActionKick removes one member from the current group or guild.
+	ActionKick ActionKind = "kick"
+)
+
+// Action is a transport-independent management request. UserID is a
+// member_openid in groups and a user ID in guilds. Seconds is used by mute.
+type Action struct {
+	Kind      ActionKind `json:"kind"`
+	MessageID string     `json:"message_id,omitempty"`
+	UserID    string     `json:"user_id,omitempty"`
+	Seconds   int64      `json:"seconds,omitempty"`
+	Blacklist bool       `json:"blacklist,omitempty"`
 }
 
 // Event is independent of SDK DTOs and legacy graph structures. Treat fields as immutable.
@@ -41,6 +69,7 @@ type Event struct {
 	Raw                                          json.RawMessage
 	PluginIDs                                    []string
 	Reply                                        func(context.Context, Reply) error
+	Act                                          func(context.Context, Action) error
 }
 
 // Handler processes one event. It must honor cancellation and synchronize shared state.

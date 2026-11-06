@@ -15,6 +15,19 @@ type EventType = events.Type
 // Reply is a host-adapted outgoing text or media request.
 type Reply = events.Reply
 
+// Action is a host-adapted management request.
+type Action = events.Action
+
+// ActionKind identifies a management capability.
+type ActionKind = events.ActionKind
+
+const (
+	ActionRecall = events.ActionRecall
+	ActionMute   = events.ActionMute
+	ActionUnmute = events.ActionUnmute
+	ActionKick   = events.ActionKick
+)
+
 // Canonical event names match the existing QQ normalizer. GroupAtMessage is
 // distinct from GroupMessage; subscribe to both to receive both push types.
 const (

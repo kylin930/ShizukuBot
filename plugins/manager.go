@@ -464,6 +464,17 @@ func (m *Manager) call(s *slot, e events.Event) Call {
 		}
 		return original(ctx, r)
 	}
+	originalAct := e.Act
+	c.Event.Act = func(ctx context.Context, a events.Action) error {
+		required := "group.manage"
+		if a.Kind == events.ActionRecall {
+			required = "message.recall"
+		}
+		if !s.manifest.Allows(required) || originalAct == nil {
+			return errors.New(required + " denied")
+		}
+		return originalAct(ctx, a)
+	}
 	c.Log = func(text string) {
 		if s.manifest.Allows("log.write") && m.Log != nil {
 			m.Log(e.BotID, s.manifest.ID, text)

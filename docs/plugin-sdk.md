@@ -21,9 +21,9 @@ EventPlugin 接收 Meta、`[]sdk.EventType`、EventHandler 和可选 Options。�
 
 CommandHandler 和 EventHandler 都是 `func(context.Context, Call) error` 的别名，保留编译期检查和原 Host 的方法签名，不隐藏 error。
 
-WithConfig(schema) 设置 schema 并授予 config.read；WithPermissions(...) 明确追加需要的框架能力。当前权限为 events.subscribe、commands.register、message.send、config.read、state.read、state.write、log.write，未知权限拒绝。它们不是操作系统安全策略。
+WithConfig(schema) 设置 schema 并授予 config.read；WithPermissions(...) 明确追加需要的框架能力。当前权限为 events.subscribe、commands.register、message.send、message.recall、group.manage、config.read、state.read、state.write、log.write，未知权限拒绝。它们不是操作系统安全策略。
 
-Call 只有一个规范 Event：BotID、Type、PlatformType、EventID、MessageID、Source、UserID、GroupID、ChannelID、GuildID、Message、Raw、PluginIDs 和 Reply。Args 为命令参数，Config 为独立配置快照，State 为当前插件/Bot 存储，Log 为受检查日志能力。Raw 是不可信平台数据，不含鉴权头或核心对象。字段视为只读。
+Call 只有一个规范 Event：BotID、Type、PlatformType、EventID、MessageID、Source、UserID、GroupID、ChannelID、GuildID、Message、Raw、PluginIDs、Reply 和 Act。Args 为命令参数，Config 为独立配置快照，State 为当前插件/Bot 存储，Log 为受检查日志能力。Raw 是不可信平台数据，不含鉴权头或核心对象。字段视为只读。
 
 | 常用调用 | 行为 |
 | --- | --- |
@@ -31,10 +31,19 @@ Call 只有一个规范 Event：BotID、Type、PlatformType、EventID、MessageI
 | `c.Send(ctx,sdk.Reply{...})` | text、image、rich_media、markdown、keyboard、video；携带 Text/URL/Keyboard |
 | `c.ReplyMarkdown(ctx,text)` | 透传 Markdown 回复 |
 | `c.ReplyImage(ctx,url)` | 透传图片回复 |
+| `c.ReplyAt(ctx,text,userID)` | 文本回复并 @ 指定用户；群聊自动改用 Markdown |
+| `c.ReplyImageBytes(ctx,data)` | 发送内存图片（≤5 MiB），自动生成 data URL |
+| `c.ReplyImageFile(ctx,path)` | 读取本地图片并发送 |
+| `c.Recall(ctx)` / `c.RecallMessage(ctx,id)` | 撤回当前消息 / 指定消息；需 message.recall |
+| `c.Mute(ctx,d)` / `c.MuteUser(ctx,id,d)` | 禁言当前用户 / 指定用户；需 group.manage |
+| `c.Unmute(ctx)` / `c.UnmuteUser(ctx,id)` | 解除禁言；需 group.manage |
+| `c.Kick(ctx,blacklist)` / `c.KickUser(ctx,id,blacklist)` | 踢出成员；需 group.manage |
 | `c.State.Get(ctx,key)` | JSON RawMessage，缺失返回 nil；需 state.read |
 | `c.State.Set(ctx,key,value)` | 合法 JSON；需 state.write |
 
 所有发送均使用同一主机回复能力，检查 message.send 和来源支持范围。群/C2C 使用核心媒体实现，频道/私信当前只有文本，其他媒体返回明确 unsupported。Reply 不得保存到回调结束后使用，传播传入 context，不暴露 QQ 客户端或其他 Bot sender。
+
+管理动作通过 Event.Act 转发，按消息来源路由：群聊支持撤回、成员禁言/解禁和踢出；C2C 仅支持撤回；频道支持撤回、成员禁言/解禁和踢出；频道私信仅支持撤回。群聊 @ 用户仅 Markdown 消息支持，`ReplyAt` 会自动处理；群聊二进制直传上限 5 MiB；踢人接口受 QQ 白名单限制，未获权限时返回平台错误。`sdk.MentionUserIDs(Event)` 可提取消息中被 @ 的用户 ID（兼容新 `<qqbot-at-user>` 与旧 `<@id>` 格式）。
 
 Schema 增加兼容的 `description` 字段供后台显示说明；数组错误带具体索引。配置 schema 保留原方言和校验：object、string、boolean、number、integer、array、properties、required、default、enum、minimum、maximum、items；未知字段拒绝，非完整 JSON Schema。Configure 保存后重启实例生效。State 按插件/Bot 隔离，key 最长 128、单值 64KiB、每文件 1MiB，原子写入；没有跨实例事务。自行创建的 goroutine 必须同步复合读改写。
 

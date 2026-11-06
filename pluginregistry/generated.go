@@ -3,10 +3,44 @@ package pluginregistry
 
 import (
 	"shizukubot/plugins"
-	p0 "shizukubot/plugins/autoreply"
-	p1 "shizukubot/plugins/example"
-	p2 "shizukubot/plugins/framework"
-	p3 "shizukubot/plugins/hello"
+	p0 "shizukubot/plugins/antiabuse"
+	p1 "shizukubot/plugins/autoreply"
+	p2 "shizukubot/plugins/bmi"
+	p3 "shizukubot/plugins/breakrepeat"
+	p4 "shizukubot/plugins/chat"
+	p5 "shizukubot/plugins/choose"
+	p6 "shizukubot/plugins/chrev"
+	p7 "shizukubot/plugins/curse"
+	p8 "shizukubot/plugins/dailynews"
+	p9 "shizukubot/plugins/driftbottle"
+	p10 "shizukubot/plugins/emozi"
+	p11 "shizukubot/plugins/example"
+	p12 "shizukubot/plugins/framework"
+	p13 "shizukubot/plugins/github"
+	p14 "shizukubot/plugins/handou"
+	p15 "shizukubot/plugins/hello"
+	p16 "shizukubot/plugins/hitokoto"
+	p17 "shizukubot/plugins/hs"
+	p18 "shizukubot/plugins/jandan"
+	p19 "shizukubot/plugins/kfccrazythursday"
+	p20 "shizukubot/plugins/manager"
+	p21 "shizukubot/plugins/moyu"
+	p22 "shizukubot/plugins/moyucalendar"
+	p23 "shizukubot/plugins/nbnhhsh"
+	p24 "shizukubot/plugins/niuniu"
+	p25 "shizukubot/plugins/omikuji"
+	p26 "shizukubot/plugins/ping"
+	p27 "shizukubot/plugins/poker"
+	p28 "shizukubot/plugins/shadiao"
+	p29 "shizukubot/plugins/shindan"
+	p30 "shizukubot/plugins/sleepmanage"
+	p31 "shizukubot/plugins/thesaurus"
+	p32 "shizukubot/plugins/verse-match"
+	p33 "shizukubot/plugins/warframeapi"
+	p34 "shizukubot/plugins/wordle"
+	p35 "shizukubot/plugins/wtf"
+	p36 "shizukubot/plugins/ygocdb"
+	p37 "shizukubot/plugins/yujn"
 )
 
 // New returns the compiled catalog, rejecting duplicate or invalid definitions.
@@ -22,6 +56,108 @@ func New() (*plugins.Registry, error) {
 		return nil, err
 	}
 	if err := r.Register(p3.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p4.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p5.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p6.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p7.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p8.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p9.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p10.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p11.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p12.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p13.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p14.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p15.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p16.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p17.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p18.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p19.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p20.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p21.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p22.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p23.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p24.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p25.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p26.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p27.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p28.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p29.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p30.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p31.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p32.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p33.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p34.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p35.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p36.Definition()); err != nil {
+		return nil, err
+	}
+	if err := r.Register(p37.Definition()); err != nil {
 		return nil, err
 	}
 	return r, nil

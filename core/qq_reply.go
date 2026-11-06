@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"html"
 	"strings"
 	"sync"
 
@@ -78,10 +79,17 @@ func (b *Bot) replyContext(life context.Context, e events.Event) func(context.Co
 			if r.Kind != "text" {
 				return errors.New("reply kind unsupported for this source")
 			}
+			if r.Mention != "" && e.Source != events.Guild {
+				return errors.New("user mentions are only supported in guild and group messages")
+			}
 			if msgID == "" {
 				return ErrMissingReplyID
 			}
-			m := &dto.MessageToCreate{Content: r.Text, MsgID: msgID}
+			content := r.Text
+			if r.Mention != "" {
+				content = qqMentionTag(r.Mention) + content
+			}
+			m := &dto.MessageToCreate{Content: content, MsgID: msgID}
 			if e.Source == events.Guild {
 				_, err = b.OpenAPI.PostMessage(call, e.ChannelID, m)
 			} else {
@@ -119,13 +127,30 @@ func (b *Bot) sendQQ(call context.Context, source events.Source, target string, 
 		}
 		return b.OpenAPI.PostC2CMessage(call, target, m)
 	}
-	m := &dto.MessageToCreate{Content: r.Text, MsgType: dto.TextMsg, MsgID: msgID, EventID: eventID}
+	if r.Mention != "" && source != events.Group {
+		return errors.New("user mentions are only supported in group messages")
+	}
+	if r.Mention != "" && r.Kind != "text" && r.Kind != "markdown" && r.Kind != "keyboard" {
+		return errors.New("user mentions are unsupported for media replies")
+	}
+	text := r.Text
+	if r.Mention != "" {
+		text = qqMentionTag(r.Mention) + text
+	}
+	m := &dto.MessageToCreate{Content: text, MsgType: dto.TextMsg, MsgID: msgID, EventID: eventID}
 	switch r.Kind {
 	case "text":
+		// QQ group text messages cannot mention users; upgrade to Markdown,
+		// which is the only documented group message type supporting mentions.
+		if r.Mention != "" {
+			m.Content = ""
+			m.MsgType = dto.MarkdownMsg
+			m.Markdown = &dto.Markdown{Content: text}
+		}
 	case "markdown", "keyboard":
 		m.Content = ""
 		m.MsgType = dto.MarkdownMsg
-		m.Markdown = &dto.Markdown{Content: r.Text}
+		m.Markdown = &dto.Markdown{Content: text}
 		if r.Kind == "keyboard" {
 			var kb keyboard.MessageKeyboard
 			if json.Unmarshal([]byte(r.Keyboard), &kb) != nil {
@@ -176,6 +201,12 @@ func (b *Bot) sendQQ(call context.Context, source events.Source, target string, 
 		return errors.New("QQ send response missing message ID")
 	}
 	return nil
+}
+
+// qqMentionTag builds the current documented QQ mention syntax. The legacy
+// <@userid> protocol is deprecated and must not be used for new messages.
+func qqMentionTag(userID string) string {
+	return `<qqbot-at-user id="` + html.EscapeString(userID) + `" />`
 }
 
 func parseDataURL(url string) string {
