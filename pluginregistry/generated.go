@@ -34,13 +34,12 @@ import (
 	p28 "shizukubot/plugins/shadiao"
 	p29 "shizukubot/plugins/shindan"
 	p30 "shizukubot/plugins/sleepmanage"
-	p31 "shizukubot/plugins/thesaurus"
-	p32 "shizukubot/plugins/verse-match"
-	p33 "shizukubot/plugins/warframeapi"
-	p34 "shizukubot/plugins/wordle"
-	p35 "shizukubot/plugins/wtf"
-	p36 "shizukubot/plugins/ygocdb"
-	p37 "shizukubot/plugins/yujn"
+	p31 "shizukubot/plugins/verse-match"
+	p32 "shizukubot/plugins/warframeapi"
+	p33 "shizukubot/plugins/wordle"
+	p34 "shizukubot/plugins/wtf"
+	p35 "shizukubot/plugins/ygocdb"
+	p36 "shizukubot/plugins/yujn"
 )
 
 // New returns the compiled catalog, rejecting duplicate or invalid definitions.
@@ -155,9 +154,6 @@ func New() (*plugins.Registry, error) {
 		return nil, err
 	}
 	if err := r.Register(p36.Definition()); err != nil {
-		return nil, err
-	}
-	if err := r.Register(p37.Definition()); err != nil {
 		return nil, err
 	}
 	return r, nil
