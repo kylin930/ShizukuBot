@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const DefaultBackground = "https://teachermate.oss-cn-qingdao.aliyuncs.com/vokMW-1750340487715-nekoaft_N02_a.png"
+const DefaultBackground = "/static/img/default-background.png"
 
 type Background struct {
 	Type  string `json:"type"`

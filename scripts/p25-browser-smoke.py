@@ -63,7 +63,7 @@ async def check(base, password, root, artifacts, chromium, restart):
         await page.wait_for_function('document.querySelector("#appearance-feedback").textContent.includes("背景加载失败")')
         await page.locator('#config-save').click()
         await page.wait_for_function('document.querySelector("#config-feedback").textContent.includes("背景尚未加载")')
-        assert (await api('/api/appearance'))['background_url'].startswith('https://teachermate.')
+        assert (await api('/api/appearance'))['background_url']=='/static/img/default-background.png'
         await page.locator('#appearance-cancel').click()
         # The original URL also works as a custom URL without a server-side fetch.
         await select('#background-type','url');await field('#background-url',await page.evaluate('AppearanceUI.fallback'))
@@ -141,7 +141,7 @@ async def check(base, password, root, artifacts, chromium, restart):
         await page.get_by_text('放弃修改',exact=True).click();await page.wait_for_selector('#about-runtime dd')
         assert await page.evaluate('document.documentElement.classList.contains("mdui-theme-dark")')
         await navigate('config');await page.locator('#background-default').click();await save()
-        assert (await api('/api/appearance'))['background_url'].startswith('https://teachermate.')
+        assert (await api('/api/appearance'))['background_url']=='/static/img/default-background.png'
         assert (await context.request.get(base+uploaded)).status==404
         await page.emulate_media(reduced_motion='reduce');await navigate('about')
         assert await page.evaluate('document.querySelector("#app-content").getAnimations().length')==0

@@ -1,7 +1,7 @@
 // Public appearance bootstrap is loaded before the first page content is painted.
 (() => {
     'use strict';
-    const fallback = 'https://teachermate.oss-cn-qingdao.aliyuncs.com/vokMW-1750340487715-nekoaft_N02_a.png';
+    const fallback = '/static/img/default-background.png';
     let saved = {...window.ShizukuAppearance};
     function apply(value) {
         mdui.setTheme(value.mode || 'auto');

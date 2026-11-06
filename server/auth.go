@@ -7,6 +7,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"sync"
 	"time"
@@ -102,8 +103,11 @@ func (m *AuthManager) refreshToken() error {
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 Edge/148.0.0.0")
-	req.Header.Set("Origin", "https://zxzj.ciallo.uk")
-	req.Header.Set("Referer", "https://zxzj.ciallo.uk/")
+	if u, err := url.Parse(config.Auth.LoginURL); err == nil && u.Scheme != "" && u.Host != "" {
+		origin := u.Scheme + "://" + u.Host
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Referer", origin+"/")
+	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
