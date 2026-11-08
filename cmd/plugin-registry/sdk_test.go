@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -51,12 +52,16 @@ func main(){_,err:=pluginregistry.New();if err!=nil{os.Stderr.WriteString(err.Er
 		if err := generate(root, "pluginregistry/generated.go"); err != nil {
 			t.Fatal(err)
 		}
-		build := exec.Command("go", "build", "-mod=mod", "-buildvcs=false", "-o", filepath.Join(root, "check"), ".")
+		bin := filepath.Join(root, "check")
+		if runtime.GOOS == "windows" {
+			bin += ".exe"
+		}
+		build := exec.Command("go", "build", "-mod=mod", "-buildvcs=false", "-o", bin, ".")
 		build.Dir = root
 		if raw, err := build.CombinedOutput(); err != nil {
 			t.Fatalf("generated SDK registry failed to compile: %v %s", err, raw)
 		}
-		return exec.Command(filepath.Join(root, "check")).CombinedOutput()
+		return exec.Command(bin).CombinedOutput()
 	}
 	if raw, err := buildAndRun(); err != nil {
 		t.Fatal(err, string(raw))

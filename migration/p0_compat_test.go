@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"shizukubot/plugins"
 	"strings"
 	"testing"
@@ -67,6 +68,9 @@ func main(){
 		t.Fatal(err)
 	}
 	binary := filepath.Join(module, "check")
+	if runtime.GOOS == "windows" {
+		binary += ".exe"
+	}
 	build := exec.Command("go", "build", "-buildvcs=false", "-mod=mod", "-o", binary, ".")
 	build.Dir = module
 	if raw, err := build.CombinedOutput(); err != nil {

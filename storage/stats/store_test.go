@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -86,7 +87,8 @@ func TestPersistenceIsolationDedupCalendarAndPrivacy(t *testing.T) {
 			t.Fatal("plaintext identity persisted")
 		}
 	}
-	if stat, e := os.Stat(filepath.Join(filepath.Dir(path), ".stats-hmac-key")); e != nil || stat.Mode().Perm() != 0600 {
+	if stat, e := os.Stat(filepath.Join(filepath.Dir(path), ".stats-hmac-key")); e != nil ||
+		(runtime.GOOS != "windows" && stat.Mode().Perm() != 0600) {
 		t.Fatal(stat, e)
 	}
 }
@@ -301,6 +303,10 @@ func TestTimezoneAndReadOnlyDirectory(t *testing.T) {
 	changed.Timezone = "UTC"
 	if _, e := Open(path, changed, nil); e == nil {
 		t.Fatal("mixed timezone accepted")
+	}
+	if runtime.GOOS == "windows" {
+		// Windows does not enforce directory permissions through chmod.
+		return
 	}
 	if e := os.Chmod(dir, 0500); e != nil {
 		t.Fatal(e)
