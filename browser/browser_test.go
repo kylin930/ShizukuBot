@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"net/http"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -110,8 +111,15 @@ func TestSessionNavigationAndWatch(t *testing.T) {
 }
 
 func TestFileURL(t *testing.T) {
-	got := fileURL(`C:\tmp\a b.html`)
-	if !strings.HasPrefix(got, "file:///C:/tmp/") {
+	if runtime.GOOS == "windows" {
+		got := fileURL(`C:\tmp\a b.html`)
+		if !strings.HasPrefix(got, "file:///C:/tmp/") {
+			t.Fatalf("unexpected file URL %q", got)
+		}
+		return
+	}
+	got := fileURL("/tmp/a b.html")
+	if got != "file:///tmp/a b.html" {
 		t.Fatalf("unexpected file URL %q", got)
 	}
 }
