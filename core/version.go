@@ -1,6 +1,6 @@
 package core
 
 const (
-	CoreVersion  = "1.0.0"
-	WebUIVersion = "1.0.0"
+	CoreVersion  = "2.2.6"
+	WebUIVersion = "2.2.6"
 )

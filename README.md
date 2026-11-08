@@ -9,6 +9,8 @@
 多机器人 · 编译期 Go 插件 · 可视化规则 · MDUI 2 管理后台
 
 <p>
+  <a href="https://github.com/kylin930/ShizukuBot/actions/workflows/ci.yml"><img src="https://github.com/kylin930/ShizukuBot/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/kylin930/ShizukuBot/releases"><img src="https://img.shields.io/github/v/release/kylin930/ShizukuBot" alt="Release"></a>
   <img src="https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white" alt="Go 1.26+">
   <img src="https://img.shields.io/badge/QQ-%E5%AE%98%E6%96%B9%E6%9C%BA%E5%99%A8%E4%BA%BA-12B7F5" alt="QQ 官方机器人">
   <img src="https://img.shields.io/badge/WebUI-MDUI%202-6750A4" alt="MDUI 2">
