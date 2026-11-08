@@ -66,6 +66,7 @@ type Event struct {
 	PlatformType, EventID, MessageID             string
 	Source                                       Source
 	UserID, GroupID, ChannelID, GuildID, Message string
+	Nickname                                     string
 	Raw                                          json.RawMessage
 	PluginIDs                                    []string
 	Reply                                        func(context.Context, Reply) error

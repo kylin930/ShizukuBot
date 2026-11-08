@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -51,6 +52,48 @@ func (c Call) ReplyImage(ctx context.Context, url string) error {
 	return c.Send(ctx, Reply{Kind: "image", URL: url})
 }
 
+// ReplyKeyboard sends a Markdown reply with clickable buttons. QQ groups and
+// C2C chats support custom keyboards when the application has the permission;
+// guilds only accept a keyboard template ID. Unsupported sources and platform
+// denials are returned to the caller so it can fall back to a text reply.
+func (c Call) ReplyKeyboard(ctx context.Context, markdown string, keyboard Keyboard) error {
+	if strings.TrimSpace(markdown) == "" {
+		return errors.New("keyboard reply requires markdown text")
+	}
+	payload, err := keyboard.JSON()
+	if err != nil {
+		return err
+	}
+	return c.Send(ctx, Reply{Kind: "keyboard", Text: markdown, Keyboard: payload})
+}
+
+// ReplyKeyboardJSON sends Markdown with a prebuilt keyboard payload, for
+// example an official template ID configured in the QQ console. The payload is
+// validated but forwarded unchanged.
+func (c Call) ReplyKeyboardJSON(ctx context.Context, markdown, keyboardJSON string) error {
+	if strings.TrimSpace(markdown) == "" {
+		return errors.New("keyboard reply requires markdown text")
+	}
+	var keyboard Keyboard
+	if err := json.Unmarshal([]byte(keyboardJSON), &keyboard); err != nil {
+		return errors.New("invalid keyboard JSON: " + err.Error())
+	}
+	if err := keyboard.Validate(); err != nil {
+		return err
+	}
+	return c.Send(ctx, Reply{Kind: "keyboard", Text: markdown, Keyboard: keyboardJSON})
+}
+
+// ReplyKeyboardOrText sends Markdown with buttons and falls back to a plain
+// text reply when the source or the application does not support keyboards.
+// Plugins use it so a single call still works in guilds and unapproved chats.
+func (c Call) ReplyKeyboardOrText(ctx context.Context, markdown string, keyboard Keyboard) error {
+	if err := c.ReplyKeyboard(ctx, markdown, keyboard); err != nil {
+		return c.Reply(ctx, markdown)
+	}
+	return nil
+}
+
 // ReplyAt replies with text that mentions userID. QQ groups deliver this as a
 // Markdown message; guilds keep the text message type. C2C mentions fail.
 func (c Call) ReplyAt(ctx context.Context, text, userID string) error {
@@ -80,6 +123,27 @@ func (c Call) ReplyImageFile(ctx context.Context, path string) error {
 		return err
 	}
 	return c.ReplyImageBytes(ctx, data)
+}
+
+// ReplyVoice sends a voice message from a public URL. QQ groups and C2C chats
+// accept silk, wav, mp3 and flac; guilds do not support voice messages.
+func (c Call) ReplyVoice(ctx context.Context, url string) error {
+	return c.Send(ctx, Reply{Kind: "voice", URL: url})
+}
+
+// ReplyVoiceBytes sends in-memory audio without a public URL. QQ direct binary
+// upload accepts at most 5 MiB; mime must be an audio type such as audio/wav.
+func (c Call) ReplyVoiceBytes(ctx context.Context, data []byte, mime string) error {
+	if len(data) == 0 {
+		return errors.New("empty voice data")
+	}
+	if len(data) > 5<<20 {
+		return errors.New("voice data exceeds the 5 MiB inline upload limit")
+	}
+	if !strings.HasPrefix(mime, "audio/") {
+		return errors.New("voice MIME type must be audio/*")
+	}
+	return c.Send(ctx, Reply{Kind: "voice", URL: "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)})
 }
 
 // Recall removes the message that triggered this event.

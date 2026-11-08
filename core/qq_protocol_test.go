@@ -219,12 +219,16 @@ func TestQQProtocolAllMediaFormats(t *testing.T) {
 			mock := newQQMock(t)
 			b := testBot(t, "media")
 			useQQEndpoint(t, b, mock.server.URL)
-			for _, kind := range []string{"text", "markdown", "keyboard", "image", "rich_media", "video", "base64"} {
+			for _, kind := range []string{"text", "markdown", "keyboard", "image", "rich_media", "video", "voice", "base64", "audiobase64"} {
 				e := events.Event{Type: "group_at_message", Source: source, GroupID: "group", UserID: "user", MessageID: kind}
 				r := events.Reply{Kind: kind, Text: "body", URL: "https://example.invalid/file", Keyboard: `{"id":"approved-template"}`}
 				if kind == "base64" {
 					r.Kind = "image"
 					r.URL = "data:image/png;base64,aW1hZ2U="
+				}
+				if kind == "audiobase64" {
+					r.Kind = "voice"
+					r.URL = "data:audio/wav;base64,dm9pY2U="
 				}
 				before := len(mock.captured())
 				if err := b.reply(e)(context.Background(), r); err != nil {
@@ -239,7 +243,7 @@ func TestQQProtocolAllMediaFormats(t *testing.T) {
 				switch kind {
 				case "markdown", "keyboard":
 					msgType = 2
-				case "image", "rich_media", "video", "base64":
+				case "image", "rich_media", "video", "voice", "base64", "audiobase64":
 					msgType = 7
 					if len(requests) != 2 {
 						t.Fatal(requests)
@@ -249,13 +253,19 @@ func TestQQProtocolAllMediaFormats(t *testing.T) {
 						t.Fatal(upload)
 					}
 					fileType := float64(1)
-					if kind == "video" {
+					switch kind {
+					case "video":
 						fileType = 2
+					case "voice", "audiobase64":
+						fileType = 3
 					}
 					if upload.Body["file_type"] != fileType {
 						t.Fatal(upload)
 					}
 					if kind == "base64" && upload.Body["file_data"] != "aW1hZ2U=" {
+						t.Fatal(upload)
+					}
+					if kind == "audiobase64" && upload.Body["file_data"] != "dm9pY2U=" {
 						t.Fatal(upload)
 					}
 				}

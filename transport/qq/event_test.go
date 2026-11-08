@@ -26,6 +26,13 @@ func TestNormalizeSourcesAndManagement(t *testing.T) {
 	}
 }
 
+func TestNormalizeSenderNickname(t *testing.T) {
+	e, err := Normalize("bot", []byte(`{"id":"event","t":"GROUP_AT_MESSAGE_CREATE","d":{"id":"message","group_openid":"group","author":{"member_openid":"member","username":"小明"}}}`))
+	if err != nil || e.Nickname != "小明" || e.UserID != "member" {
+		t.Fatalf("%+v %v", e, err)
+	}
+}
+
 func TestQQIdentifierNamespacesAndUnsupportedInteraction(t *testing.T) {
 	for _, kind := range []string{"C2C_MESSAGE_CREATE", "GROUP_AT_MESSAGE_CREATE", "GROUP_MESSAGE_CREATE"} {
 		e, err := Normalize("bot", []byte(`{"id":"event","t":"`+kind+`","d":{"id":"message","group_id":"legacy","group_openid":"group","author":{"id":"guild-user","user_openid":"c2c-user","member_openid":"group-member"}}}`))

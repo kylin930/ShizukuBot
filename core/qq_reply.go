@@ -158,15 +158,20 @@ func (b *Bot) sendQQ(call context.Context, source events.Source, target string, 
 			}
 			m.Keyboard = &kb
 		}
-	case "image", "rich_media", "video":
+	case "image", "rich_media", "video", "voice":
 		upload := &dto.RichMediaMessage{FileType: 1, URL: r.URL, SrvSendMsg: false}
-		if r.Kind == "video" {
+		switch r.Kind {
+		case "video":
 			upload.FileType = 2
-		} else if data := parseDataURL(r.URL); data != "" {
+		case "voice":
+			// QQ accepts silk, wav, mp3 and flac for voice uploads.
+			upload.FileType = 3
+		}
+		if data := parseDataURL(r.URL); data != "" {
 			upload.URL = ""
 			upload.FileData = data
 		} else if strings.HasPrefix(r.URL, "data:") {
-			return errors.New("invalid image data URL")
+			return errors.New("invalid media data URL")
 		}
 		response, uploadErr := post(upload)
 		if uploadErr != nil {
@@ -210,7 +215,7 @@ func qqMentionTag(userID string) string {
 }
 
 func parseDataURL(url string) string {
-	if !strings.HasPrefix(url, "data:image/") {
+	if !strings.HasPrefix(url, "data:image/") && !strings.HasPrefix(url, "data:audio/") {
 		return ""
 	}
 	header, data, ok := strings.Cut(url, ",")

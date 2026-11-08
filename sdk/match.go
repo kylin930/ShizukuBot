@@ -98,3 +98,34 @@ func SaveJSON(ctx context.Context, st State, key string, v any) error {
 	}
 	return st.Set(ctx, key, json.RawMessage(b))
 }
+
+// ImageURLs returns the URLs of image attachments carried by the event.
+// QQ group and C2C messages put media in the raw payload's attachments array,
+// which the normalized Event does not expose directly.
+func ImageURLs(e Event) []string {
+	if len(e.Raw) == 0 {
+		return nil
+	}
+	var d struct {
+		Attachments []struct {
+			URL         string `json:"url"`
+			ContentType string `json:"content_type"`
+			Width       int    `json:"width"`
+			Height      int    `json:"height"`
+		} `json:"attachments"`
+	}
+	if json.Unmarshal(e.Raw, &d) != nil {
+		return nil
+	}
+	urls := make([]string, 0, len(d.Attachments))
+	for _, a := range d.Attachments {
+		if a.URL == "" {
+			continue
+		}
+		if a.ContentType != "" && !strings.HasPrefix(a.ContentType, "image/") {
+			continue
+		}
+		urls = append(urls, a.URL)
+	}
+	return urls
+}

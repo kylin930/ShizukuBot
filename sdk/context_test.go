@@ -33,6 +33,24 @@ func TestReplyImageBytesBuildsDataURL(t *testing.T) {
 	}
 }
 
+func TestReplyVoiceBytesBuildsDataURL(t *testing.T) {
+	var got Reply
+	c := Call{Event: Event{Reply: func(_ context.Context, r Reply) error { got = r; return nil }}}
+	wav := []byte("RIFF\x00\x00\x00\x00WAVEfmt ")
+	if err := c.ReplyVoiceBytes(context.Background(), wav, "audio/wav"); err != nil {
+		t.Fatal(err)
+	}
+	if got.Kind != "voice" || !strings.HasPrefix(got.URL, "data:audio/wav;base64,") {
+		t.Fatalf("unexpected voice reply: %+v", got)
+	}
+	if err := c.ReplyVoiceBytes(context.Background(), nil, "audio/wav"); err == nil {
+		t.Fatal("empty voice data was accepted")
+	}
+	if err := c.ReplyVoiceBytes(context.Background(), wav, "text/plain"); err == nil {
+		t.Fatal("non-audio MIME was accepted")
+	}
+}
+
 func TestActionHelpers(t *testing.T) {
 	var actions []Action
 	c := Call{Event: Event{MessageID: "msg", UserID: "user",

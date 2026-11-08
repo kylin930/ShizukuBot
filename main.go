@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"shizukubot/api"
+	"shizukubot/browser"
 	"shizukubot/config"
 	"shizukubot/core"
 	stats "shizukubot/storage/stats"
@@ -122,6 +123,8 @@ func main() {
 	fmt.Printf("\n📢 Received signal: %s, shutting down gracefully...\n", sig)
 
 	botManager.StopAll()
+	// 插件出图用的共享无头浏览器随宿主一起退出，避免遗留 Chrome 进程。
+	browser.CloseRenderer()
 	pluginCtx, pluginCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	if err := router.Close(pluginCtx); err != nil {
 		fmt.Println("plugin shutdown failed")

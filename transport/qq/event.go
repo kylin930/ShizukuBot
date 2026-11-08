@@ -30,6 +30,7 @@ func Normalize(botID string, raw []byte) (events.Event, error) {
 			ID           string `json:"id"`
 			UserOpenID   string `json:"user_openid"`
 			MemberOpenID string `json:"member_openid"`
+			Username     string `json:"username"`
 		} `json:"author"`
 	}
 	if p.Type == "" || len(p.Data) == 0 || string(p.Data) == "null" {
@@ -50,6 +51,7 @@ func Normalize(botID string, raw []byte) (events.Event, error) {
 		if e.UserID == "" {
 			e.UserID = d.Author.MemberOpenID
 		}
+		e.Nickname = d.Author.Username
 	}
 	switch p.Type {
 	case "GROUP_AT_MESSAGE_CREATE":

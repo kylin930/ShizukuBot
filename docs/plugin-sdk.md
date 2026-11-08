@@ -23,17 +23,21 @@ CommandHandler 和 EventHandler 都是 `func(context.Context, Call) error` 的�
 
 WithConfig(schema) 设置 schema 并授予 config.read；WithPermissions(...) 明确追加需要的框架能力。当前权限为 events.subscribe、commands.register、message.send、message.recall、group.manage、config.read、state.read、state.write、log.write，未知权限拒绝。它们不是操作系统安全策略。
 
-Call 只有一个规范 Event：BotID、Type、PlatformType、EventID、MessageID、Source、UserID、GroupID、ChannelID、GuildID、Message、Raw、PluginIDs、Reply 和 Act。Args 为命令参数，Config 为独立配置快照，State 为当前插件/Bot 存储，Log 为受检查日志能力。Raw 是不可信平台数据，不含鉴权头或核心对象。字段视为只读。
+Call 只有一个规范 Event：BotID、Type、PlatformType、EventID、MessageID、Source、UserID、Nickname、GroupID、ChannelID、GuildID、Message、Raw、PluginIDs、Reply 和 Act。Nickname 取平台事件中的发送者昵称（QQ 群消息的 `author.username`），平台未下发时为空字符串。Args 为命令参数，Config 为独立配置快照，State 为当前插件/Bot 存储，Log 为受检查日志能力。Raw 是不可信平台数据，不含鉴权头或核心对象。字段视为只读。
 
 | 常用调用 | 行为 |
 | --- | --- |
 | `c.Reply(ctx,text)` | 当前事件的文本回复 |
-| `c.Send(ctx,sdk.Reply{...})` | text、image、rich_media、markdown、keyboard、video；携带 Text/URL/Keyboard |
+| `c.Send(ctx,sdk.Reply{...})` | text、image、rich_media、markdown、keyboard、video、voice；携带 Text/URL/Keyboard |
 | `c.ReplyMarkdown(ctx,text)` | 透传 Markdown 回复 |
 | `c.ReplyImage(ctx,url)` | 透传图片回复 |
 | `c.ReplyAt(ctx,text,userID)` | 文本回复并 @ 指定用户；群聊自动改用 Markdown |
+| `c.ReplyKeyboard(ctx,markdown,kb)` | Markdown + 自定义按钮键盘；群/C2C 需平台开通 Markdown/按钮权限 |
+| `c.ReplyKeyboardJSON(ctx,markdown,json)` | Markdown + 预制键盘 JSON（如官方模板 ID），校验后原样下发 |
 | `c.ReplyImageBytes(ctx,data)` | 发送内存图片（≤5 MiB），自动生成 data URL |
 | `c.ReplyImageFile(ctx,path)` | 读取本地图片并发送 |
+| `c.ReplyVoice(ctx,url)` | 语音回复，URL 指向 silk/wav/mp3/flac；群/C2C 可用，频道不支持 |
+| `c.ReplyVoiceBytes(ctx,data,mime)` | 发送内存音频（≤5 MiB），mime 需为 `audio/*` |
 | `c.Recall(ctx)` / `c.RecallMessage(ctx,id)` | 撤回当前消息 / 指定消息；需 message.recall |
 | `c.Mute(ctx,d)` / `c.MuteUser(ctx,id,d)` | 禁言当前用户 / 指定用户；需 group.manage |
 | `c.Unmute(ctx)` / `c.UnmuteUser(ctx,id)` | 解除禁言；需 group.manage |
@@ -43,9 +47,29 @@ Call 只有一个规范 Event：BotID、Type、PlatformType、EventID、MessageI
 
 所有发送均使用同一主机回复能力，检查 message.send 和来源支持范围。群/C2C 使用核心媒体实现，频道/私信当前只有文本，其他媒体返回明确 unsupported。Reply 不得保存到回调结束后使用，传播传入 context，不暴露 QQ 客户端或其他 Bot sender。
 
+语音与图片共用富媒体上传通道（`file_type=3`），同样占用被动回复额度；QQ 只接受 silk/wav/mp3/flac，频道和频道私信不支持语音。需要自己生成音频时优先用 wav（标准库可直接拼 RIFF），或调用返回 mp3 的 TTS 接口后走 `ReplyVoiceBytes`。
+
+按钮键盘用 `sdk.NewKeyboard` / `sdk.NewRow` / `sdk.CommandButton` / `sdk.CallbackButton` / `sdk.LinkButton` 构建，也可用 `sdk.Keyboard{ID:"模板ID"}` 引用官方模板，或通过 `ReplyKeyboardJSON` 原样下发。发送前按 QQ 限制校验：1–5 行、每行 1–5 个按钮、按钮文字 ≤20 字、`action.data` ≤1024 字节、二次确认文字 ≤40 字。`CommandButton` 点击后把 `#指令` 填进输入框并直接发送，因此插件仍只需处理文本指令。群/C2C 的 Markdown 与自定义键盘依赖应用权限，平台拒绝或来源不支持时返回错误，插件应降级为普通文本/图片；频道与频道私信不支持键盘。
+
 管理动作通过 Event.Act 转发，按消息来源路由：群聊支持撤回、成员禁言/解禁和踢出；C2C 仅支持撤回；频道支持撤回、成员禁言/解禁和踢出；频道私信仅支持撤回。群聊 @ 用户仅 Markdown 消息支持，`ReplyAt` 会自动处理；群聊二进制直传上限 5 MiB；踢人接口受 QQ 白名单限制，未获权限时返回平台错误。`sdk.MentionUserIDs(Event)` 可提取消息中被 @ 的用户 ID（兼容新 `<qqbot-at-user>` 与旧 `<@id>` 格式）。
 
 Schema 增加兼容的 `description` 字段供后台显示说明；数组错误带具体索引。配置 schema 保留原方言和校验：object、string、boolean、number、integer、array、properties、required、default、enum、minimum、maximum、items；未知字段拒绝，非完整 JSON Schema。Configure 保存后重启实例生效。State 按插件/Bot 隔离，key 最长 128、单值 64KiB、每文件 1MiB，原子写入；没有跨实例事务。自行创建的 goroutine 必须同步复合读改写。
+
+### 浏览器出图与交互
+
+插件不需要直接依赖 chromedp；框架内置两种浏览器能力，二者都使用本机 Chrome/Edge，找不到浏览器时返回明确错误，可用 `SHIZUKUBOT_BROWSER_PATH` 指定可执行文件。
+
+| 调用 | 行为 |
+| --- | --- |
+| `sdk.RenderHTML(ctx,html,opts)` | 共享无头浏览器渲染 HTML 并返回 JPEG；`opts` 为 Width/Height/FullPage/Timeout，宽高默认 1280×800，Timeout 默认 60s |
+| `sdk.OpenBrowser(ctx,opts)` | 打开独立浏览器会话，返回 `*sdk.Browser`；可设移动端 UA、显示窗口、代理、忽略证书错误 |
+| `Browser.Navigate` / `Evaluate` / `EvaluateAwait` / `WaitVisible` / `HTML` | 导航、执行 JS（含 Promise）、等待选择器、取页面 HTML |
+| `Browser.Screenshot` / `ElementScreenshot` | 整页 JPEG / 元素 PNG |
+| `Browser.WatchURLs(handler)` | 监听所有网络请求 URL 与 method，返回取消函数；用于拦截扫码登录 redirect |
+| `Browser.Close` | 关闭本次独立浏览器会话 |
+| `sdk.CloseRenderBrowser()` | 关闭共享渲染浏览器；宿主退出时已自动调用 |
+
+`RenderHTML` 适合静态卡片出图：模板与 CSS/图片全部内嵌（图片转 data URI），每次渲染使用独立标签页，不污染其他渲染；渲染超时只影响本次标签页，不会杀掉共享浏览器进程，共享进程随宿主退出。`OpenBrowser` 适合需要登录态的重交互流程，例如在同一个浏览器会话里打开二维码页、监听 `auth://` 回调；`ShowWindow=true` 便于人工扫码。独立会话由调用方的 ctx 与 `Close` 管理，插件应按自身业务设置 Timeout 并在结束后关闭。
 
 ## 构造器和校验时机
 
