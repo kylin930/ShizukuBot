@@ -9,7 +9,7 @@ shizukubot migrate-legacy --apply
 # --script-source data/code-plugins --destination plugins/migrated --backups data/legacy-backups
 ```
 
-apply 先复制并逐文件校验旧图、自定义节点和原 P1 脚本项目到 `data/legacy-backups/<timestamp>-<random>/`，包含原始 JSON、内嵌定义、脚本源码及项目文件。`checksums.json` 保存所有文件摘要，`report.json` 记录检测和迁移状态。目录 0700、文件 0600；每类输入总量最多 64MiB，拒绝符号链接或特殊文件，超限需使用独立验证的离线备份，不会跳过数据。生产配置和持久状态仍在 `data/plugin-data`，请另行离线备份；在线导出只包括已编译插件的数据。
+apply 先复制并逐文件校验旧图、自定义节点和原脚本项目到 `data/legacy-backups/<timestamp>-<random>/`，包含原始 JSON、内嵌定义、脚本源码及项目文件。`checksums.json` 保存所有文件摘要，`report.json` 记录检测和迁移状态。目录 0700、文件 0600；每类输入总量最多 64MiB，拒绝符号链接或特殊文件，超限需使用独立验证的离线备份，不会跳过数据。生产配置和持久状态仍在 `data/plugin-data`，请另行离线备份；在线导出只包括已编译插件的数据。
 
 ## 转换边界
 
@@ -21,7 +21,7 @@ apply 先复制并逐文件校验旧图、自定义节点和原 P1 脚本项目�
 | 多入口/分支/循环/多动作、额外数据依赖、断连/重复连接 | 原始数据备份，人工迁移 |
 | 自定义节点或全局定义覆盖、Go/Yaegi、复杂模板、文件/HTTP/数据库/渲染 | 原始数据备份，人工重写 |
 | 媒体、频道、私信、互动等复杂旧图 | 新 SDK 保留事件/回复能力，本轮不自动转换 |
-| 原 P1 脚本项目 | 原样备份，scripts 清单报告 manual-go-rewrite，不执行或伪装转换 |
+| 原脚本项目 | 原样备份，scripts 清单报告 manual-go-rewrite，不执行或伪装转换 |
 
 全部图节点和连接必须能解释为完整规定路径。分支、事件数据端口和未解释节点不会被忽略。复杂图不会生成占位 Go 代码或声明迁移成功。
 
@@ -50,6 +50,6 @@ shizukubot migrate-legacy --rollback /absolute/backup/path --destination plugins
 go generate ./pluginregistry
 ```
 
-回滚要求显式目标与报告一致，验证原始备份和生成目录摘要，拒绝删除编辑过的源码。只移除未改动生成包，保留所有原始数据及备份；不修改运行中程序、插件配置或已部署二进制。旧 P1 报告的未改动输出仍可按原目标校验回滚，不能将旧脚本输出当作当前插件加载。
+回滚要求显式目标与报告一致，验证原始备份和生成目录摘要，拒绝删除编辑过的源码。只移除未改动生成包，保留所有原始数据及备份；不修改运行中程序、插件配置或已部署二进制。旧脚本报告的未改动输出仍可按原目标校验回滚，不能将旧脚本输出当作当前插件加载。
 
 测试实际编译生成 Go 包并执行群/C2C/命令/条件/Unicode/去重对照，同时验证复杂图拒绝、脚本原样备份、自定义覆盖、重复检测、中断记录和回滚保护。真实用户插件迁移结果需以运行时 report.json 为准。

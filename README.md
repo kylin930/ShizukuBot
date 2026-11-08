@@ -246,7 +246,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o shizukubot .
 | [QQ 协议审查](docs/qq-protocol-audit.md) | 协议版本与实现差异 |
 | [旧数据迁移](docs/legacy-migration.md) | 检测、迁移、审核与回滚 |
 
-交付报告（P0–P2.5）保留在 `docs/v2-*.md`，包括 Go 纠偏、SDK 开发体验、插件后台、规则、QQ 联调、SDK 统一维护、WebUI 打磨与统计 / 外观。
+历史交付报告保留在 `docs/v2-*.md`，包括 Go 纠偏、SDK 开发体验、插件后台、规则、QQ 联调、SDK 统一维护、WebUI 打磨与统计 / 外观。
 
 ## 已知限制
 

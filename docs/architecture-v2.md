@@ -1,4 +1,4 @@
-# ShizukuBot v2 架构：Go 原生 P2.2
+# ShizukuBot v2 架构：Go 原生
 
 ## 生产事件链路
 
@@ -17,7 +17,7 @@ flowchart LR
     Plugin --> Reply[事件回复能力]
 ```
 
-Bot 管理连接、生命周期和消息能力。Bus、Dispatcher 和 Transport 不依赖插件、图模型或编辑器。P0 的来源规范化、按 Bot/消息身份去重、签名、gateway 取消/重连和管理安全保留。生产路径没有 LiteGraph、Yaegi、脚本宿主或动态代码加载。
+Bot 管理连接、生命周期和消息能力。Bus、Dispatcher 和 Transport 不依赖插件、图模型或编辑器。来源规范化、按 Bot/消息身份去重、签名、gateway 取消/重连和管理安全保留。生产路径没有 LiteGraph、Yaegi、脚本宿主或动态代码加载。
 
 ## SDK 与运行时边界
 
@@ -43,7 +43,7 @@ Bus 按订阅顺序同步广播。多个插件可响应同一普通指令；一�
 
 调用默认 2 秒，**Go 超时是合作取消**，不强行杀死 goroutine。回调的 error/panic 会记录到状态并返回，其他回调和订阅继续执行；后续调用允许恢复，管理员也可重启实例。框架不再采用进程崩溃重建或 IPC 退避机制。后台 goroutine 必须自行 recover/同步、遵守 context 并在 Stop 中等待释放。
 
-管理 API 配置锁只保护快照和提交，同 Bot 生命周期编辑单独串行；查询、沙盒和消息发送不持全局锁。核心认证、内置回复和网络发送仍保持 P1 已有的锁外调用与 context 传播。
+管理 API 配置锁只保护快照和提交，同 Bot 生命周期编辑单独串行；查询、沙盒和消息发送不持全局锁。核心认证、内置回复和网络发送仍保持已有的锁外调用与 context 传播。
 
 ## 配置、状态与备份
 
@@ -51,7 +51,7 @@ Bus 按订阅顺序同步广播。多个插件可响应同一普通指令；一�
 
 数据备份只含版本、插件 ID、各 Bot 配置与状态，不含源码、激活标记或核心凭证。只允许恢复到已编译插件的空数据 scope，拒绝覆盖已有数据，保持禁用。备份是各状态文件的有效快照，不承诺跨 Bot 事务一致性，严格一致备份应停止主机。私有备份需保密。
 
-原 P1 的 `data/code-plugins` 及用户旧图数据保留在磁盘，不扫描、不加载、不删除。未知旧脚本 ID 的配置不恢复执行；同 ID 的新 Go 定义需人工核对配置和状态兼容性。旧格式 trusted 字段不再控制编译代码，已知 Go 插件仍按 enabled 恢复。
+原有的 `data/code-plugins` 及用户旧图数据保留在磁盘，不扫描、不加载、不删除。未知旧脚本 ID 的配置不恢复执行；同 ID 的新 Go 定义需人工核对配置和状态兼容性。旧格式 trusted 字段不再控制编译代码，已知 Go 插件仍按 enabled 恢复。
 
 ## 能力与安全边界
 
@@ -61,9 +61,9 @@ sdk.Host 提供 BotID、配置快照、状态、日志、生命周期和注册�
 
 沙盒每次创建独立 Go 实例、临时状态和捕获型 Reply，最多并发四个；不复用生产 sender、状态或订阅。它可验证回复和错误，不限制插件自行产生的副作用。
 
-认证、CSRF、HTTPS Cookie 策略、日志 WebSocket 授权和凭证脱敏沿用 P0。WebUI 继续使用 MDUI 2 的普通浏览器 JavaScript，静态分发，无后端 Node 依赖。旧图只在离线迁移工具读取，详见 [迁移说明](legacy-migration.md)。P1.2 验证与兼容说明见 [SDK 开发体验报告](v2-p1-sdk-dx-report.md)，原 Go 纠偏记录保留为历史。
+认证、CSRF、HTTPS Cookie 策略、日志 WebSocket 授权和凭证脱敏沿用既有做法。WebUI 继续使用 MDUI 2 的普通浏览器 JavaScript，静态分发，无后端 Node 依赖。旧图只在离线迁移工具读取，详见 [迁移说明](legacy-migration.md)。SDK 验证与兼容说明见 [SDK 开发体验报告](v2-p1-sdk-dx-report.md)，原 Go 纠偏记录保留为历史。
 
-## P2.2 轻量规则边界
+## 轻量规则边界
 
 `rules` 只依赖标准库和 `events`，不导入 SDK、plugins、QQ DTO 或流程图。Router 组合顺序为核心订阅 → 单个规则订阅 → Restore/Enable 的 Go 插件订阅；不修改 Bus 优先级机制。沿用 Dispatcher admission/消息身份去重，不注册第二套平台回调。Transport/Bot/SDK API 保持原样。
 
@@ -78,7 +78,7 @@ Execute/Preview 共享纯 Match 和同一 evaluate 循环。Preview 替换为捕
 `AdminUI` 暴露中立的安全 DOM/请求/作用域/未保存保护工具，PluginUI 保留兼容导出和私有插件选择状态，规则页拥有自己的 Bot/草稿状态。只增加一个 Rail 与 Drawer 入口；没有更换 MDUI、SDK、Manifest 或 Registry。没有正则、冷却、定时、脚本、工作流、网络/文件动作或新的依赖。
 
 
-## QQ reply capability (P2.3)
+## QQ 回复能力
 
 Both signed Webhook and explicit WebSocket route through Bot.HandlePayloadAccepted
 → Normalize → existing Dispatcher/dedup → existing Bus. No second dispatcher or
@@ -101,7 +101,7 @@ OpenAPI acceptance, event receipt and runtime Running are separate observations;
 none proves QQ client delivery. Sandboxes never receive a real QQ sender.
 
 
-## SDK ownership after P2.3.1
+## SDK 统一维护
 
 Current QQ transport types come exclusively from the pinned external
 `github.com/kylin930/botgo-plus` module. ShizukuBot contains no SDK source tree,
@@ -109,5 +109,5 @@ SDK submodule, vendor copy or local SDK replace. The framework keeps ownership
 of Event.Reply, cancellation and sequence allocation; botgo-plus owns DTO/wire,
 HTTP/error/trace, token and signature compatibility. Application EventBus,
 Dispatcher, plugin SDK, rules, multiple Bot instances and MDUI behavior stay the
-same. Historical P0–P2.3 reports retain their original dependency facts and are
+same. Historical delivery reports retain their original dependency facts and are
 marked as historical; see [migration report](v2-p23-botgo-plus-migration-report.md).

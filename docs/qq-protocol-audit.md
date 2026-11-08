@@ -1,9 +1,9 @@
 # QQ protocol audit (2026-11-02)
 
-> 历史实现说明：本文件保留当时的 SDK 路径与验证事实。当前编译依赖已迁移到独立 botgo-plus，根目录 botgo-master 已移除；见 [P2.3.1 迁移报告](v2-p23-botgo-plus-migration-report.md)。
+> 历史实现说明：本文件保留当时的 SDK 路径与验证事实。当前编译依赖已迁移到独立 botgo-plus，根目录 botgo-master 已移除；见 [SDK 依赖迁移报告](v2-p23-botgo-plus-migration-report.md)。
 
 
-Baseline: `fc4db97` (remote main, merged PR #3 / P2.2). Dependency:
+Baseline: `fc4db97` (remote main, merged PR #3). Dependency:
 `github.com/tencent-connect/botgo v0.14.0 => ./botgo-master`. This replacement
 contains Gensokyo-derived DTO/event/base64 upload patches (SDK_CHANGES.md).
 No wholesale SDK upgrade was performed.

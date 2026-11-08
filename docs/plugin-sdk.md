@@ -135,7 +135,7 @@ Simple/Advanced 都导出 `Definition() sdk.Definition`，`go generate ./pluginr
 旧代码安装/卸载仍为 410，图相关路由仍为 404。沙盒为每次运行创建新实例、临时状态和捕获 Reply，不需要 QQ、不发送真实消息，但不限制可信插件自行访问系统资源。本轮不包含 `.so`、RPC/IPC、热加载或自动安装，也不承诺未来进程外协议可以无修改复用当前同步接口。
 
 
-### P2.1 管理状态与调试事实
+### 管理状态与调试事实
 
 正式插件列表/详情接受 bot_id 时验证真实 Bot；启停、配置、重启、恢复也在服务端验证范围。PluginInfo 保留旧字段，增加 compiled、bot_id、bot_exists、bot_running、allowed、running、state、last_error、config_error、restart_required。running 表示活动实例，State 仍可为 error；与 Bot 连接和选择策略分别解释。config 返回当前保存配置补上 Schema 默认值。
 
