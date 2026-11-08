@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="shizukubot.svg" alt="ShizukuBot" width="140">
+
 # ShizukuBot
 
 **Go 原生 QQ 官方机器人框架**
