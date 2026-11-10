@@ -67,6 +67,18 @@ func TestPluginManagementRequiresRealBotAndRespectsPolicy(t *testing.T) {
 		t.Fatal(out.Body.String())
 	}
 }
+
+// 编译任务接口不能被 /api/plugins/{id} 路由遮蔽，且缺少源码时要明确报错。
+func TestPluginRebuildStatusAndMissingSource(t *testing.T) {
+	r, c := setupRouter(t)
+	if out := envelope(t, request(r, c, "GET", "/api/plugins/rebuild/status", "")); out.Code != 0 {
+		t.Fatal(out)
+	}
+	out := envelope(t, request(r, c, "POST", "/api/plugins/rebuild", `{"restart":false}`))
+	if out.Code == 0 || !strings.Contains(out.Message, "go.mod") {
+		t.Fatal(out)
+	}
+}
 func TestConfigSaveReportsActualRestartAndDoesNotApplyInvalidConfig(t *testing.T) {
 	r, c := setupRouter(t)
 	addManagementBot(t, r, "a", nil)

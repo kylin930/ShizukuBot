@@ -1177,17 +1177,23 @@ function renderQQDiagnostics(bot) {
             <dt>最近回复</dt><dd>${time(d.last_reply_at)} <small>平台接受</small></dd>
             <dt>最近错误</dt><dd>${escapeHtml(lastError)}</dd>
         </dl>
-        <details class="ui-help"><summary>详细诊断</summary>
-            <p>事件类型：${escapeHtml(d.last_event_type || '暂无记录')}；消息 ID：${d.last_event_at ? (d.has_message_id ? '已收到' : '本事件未提供') : '未检测'}</p>
-            <p>HTTP：${escapeHtml(String(d.http_status || '未检测'))}；平台码：${escapeHtml(String(d.platform_code || '未检测'))}；Trace ID：${escapeHtml(d.trace_id || '暂无记录')}</p>
-            <p>最近发送错误：${escapeHtml(failure || '暂无记录')} · ${time(d.last_send_failure_at)}</p>
-            <p>最近回调/连接错误：${escapeHtml(d.last_transport_error || '暂无记录')} · ${time(d.last_transport_error_at)}</p>
-        </details>
-        <details class="ui-help"><summary>接入帮助</summary>
-            <p>回调地址：/webhook/${escapeHtml(bot.id)}。检查 HTTPS、事件权限和测试成员，再发送 /ping。</p>
-            <p>运行中不代表已收到回调；平台接受不等于 QQ 客户端送达，需在客户端确认。沙盒结果不计入此处。</p>
-            <p>建议使用 Webhook；WebSocket 取决于平台授权。IP 白名单和目标权限需在平台检查。</p>
-        </details>
+        <mdui-tooltip variant="rich" headline="详细诊断" placement="auto" class="ui-help">
+            <span class="ui-help-trigger" tabindex="0"><mdui-icon name="help--outlined" class="ui-help-icon"></mdui-icon><span>详细诊断</span></span>
+            <div slot="content" class="ui-help-content">
+                <p>事件类型：${escapeHtml(d.last_event_type || '暂无记录')}；消息 ID：${d.last_event_at ? (d.has_message_id ? '已收到' : '本事件未提供') : '未检测'}</p>
+                <p>HTTP：${escapeHtml(String(d.http_status || '未检测'))}；平台码：${escapeHtml(String(d.platform_code || '未检测'))}；Trace ID：${escapeHtml(d.trace_id || '暂无记录')}</p>
+                <p>最近发送错误：${escapeHtml(failure || '暂无记录')} · ${time(d.last_send_failure_at)}</p>
+                <p>最近回调/连接错误：${escapeHtml(d.last_transport_error || '暂无记录')} · ${time(d.last_transport_error_at)}</p>
+            </div>
+        </mdui-tooltip>
+        <mdui-tooltip variant="rich" headline="接入帮助" placement="auto" class="ui-help">
+            <span class="ui-help-trigger" tabindex="0"><mdui-icon name="help--outlined" class="ui-help-icon"></mdui-icon><span>接入帮助</span></span>
+            <div slot="content" class="ui-help-content">
+                <p>回调地址：/webhook/${escapeHtml(bot.id)}。检查 HTTPS、事件权限和测试成员，再发送 /ping。</p>
+                <p>运行中不代表已收到回调；平台接受不等于 QQ 客户端送达，需在客户端确认。沙盒结果不计入此处。</p>
+                <p>建议使用 Webhook；WebSocket 取决于平台授权。IP 白名单和目标权限需在平台检查。</p>
+            </div>
+        </mdui-tooltip>
     </details>`;
 }
 

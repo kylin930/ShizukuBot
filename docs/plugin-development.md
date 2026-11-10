@@ -31,7 +31,7 @@ go test ./sdk ./plugins/... ./pluginregistry
 go build -o shizukubot .
 ```
 
-部署新二进制并重启主程序，在 MDUI 2 的插件页面选择 Bot 并启用；沙盒选择 hello，输入 `/ping` 即可捕获 pong，不需要真实 QQ。启停和配置无需编译；源码变更后须生成注册表、测试、重新构建并部署，仅点“重启插件”不会加载修改后的源码。
+部署新二进制并重启主程序，在 MDUI 2 的插件页面选择 Bot 并启用；沙盒选择 hello，输入 `/ping` 即可捕获 pong，不需要真实 QQ。启停和配置无需编译；源码变更后可在插件页点“编译并重载”，由主程序在线执行 `go generate ./pluginregistry` 与 `go build`，成功后自动重启；也可继续手动生成注册表、测试、构建并部署。**仅点“重启实例”不会加载修改后的源码。**
 
 独立测试可以直接调用处理函数并注入 `sdk.Call{Event: sdk.Event{Reply: ...}}`，参考 `plugins/hello/plugin_test.go`；也可用 `Definition().New()` 和 Mock Host 测试注册。SDK 本身只依赖 Go 标准库和公共事件类型，不依赖管理器或 QQ SDK。
 
@@ -116,6 +116,6 @@ Define 默认授予指令注册、事件订阅和回复；不授予配置、状�
 
 保留 `webui/`、配置和 `data/plugin-data` 完成部署。线上数据备份为私有 JSON，恢复必须是兼容的已编译插件且没有旧数据/实例，恢复后禁用。高级插件持久状态的版本升级由作者处理。旧 `plugins` 公共类型是 deprecated 的 sdk 别名，可渐进替换 import；没有重复实现两套模型。
 
-本轮不实现 `.so`、RPC/IPC、热编译、文件监听、源码上传或自动下载。未来进程外插件是否兼容同步接口需独立设计，当前不作无修改复用承诺。实际验证见 [SDK 开发体验报告](v2-p1-sdk-dx-report.md)。
+本轮不实现 `.so`、RPC/IPC 插件热加载、源码上传或自动下载。“编译并重载”是调用本机 Go 工具链重建整个主程序并自动重启，仍要求运行目录内存在源码与 `go.mod`。实际验证见 [SDK 开发体验报告](v2-p1-sdk-dx-report.md)。
 
 管理员操作、沙盒配置来源及 4 MiB 私有数据备份限制见 [插件管理与沙盒](webui-plugin-management.md)。EventPlugin 按首次出现顺序去重事件类型；自定义类型仍支持，但名称必须为有效 UTF-8，非空、无空白或控制字符且不超过 128 字节。

@@ -71,8 +71,14 @@
         if (kind === 'loading') host.append(el('mdui-circular-progress', {class: 'plugin-spinner', 'aria-label': '加载中'}));
         host.append(text('span', message));
     }
+    // 提示统一用可悬停/聚焦的 mdui-tooltip：标签保持可见，说明正文放入富提示框。
     function help(label, paragraphs) {
-        return el('details', {class: 'ui-help'}, [text('summary', label), ...paragraphs.map(value => text('p', value))]);
+        const content = el('div', {slot: 'content', class: 'ui-help-content'}, paragraphs.map(value => text('p', value)));
+        const trigger = el('span', {class: 'ui-help-trigger', tabindex: '0'}, [
+            el('mdui-icon', {name: 'help--outlined', class: 'ui-help-icon'}),
+            text('span', label),
+        ]);
+        return el('mdui-tooltip', {variant: 'rich', headline: label, placement: 'auto', class: 'ui-help'}, [trigger, content]);
     }
     function errorMessage(error) {
         if (error.status === 401) return '登录已过期，请重新登录';

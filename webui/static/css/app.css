@@ -782,9 +782,23 @@ mdui-button:focus-visible, mdui-button-icon:focus-visible, summary:focus-visible
 .stat-card-value { font-variant-numeric:tabular-nums; min-height:1.2em; }
 .page-title { line-height:1.4; }
 .page-title mdui-button { vertical-align:middle; }
-.ui-help { margin-block:12px; font-size:13px; color:rgb(var(--mdui-color-on-surface-variant)); overflow-wrap:anywhere; }
-.ui-help summary, .qq-diagnostics > summary { cursor:pointer; padding-block:6px; width:fit-content; }
-.ui-help p { margin:8px 0; max-width:76ch; line-height:1.6; }
+/* 说明提示：可见标签 + 悬停/聚焦的 mdui-tooltip（rich 富提示） */
+.ui-help-trigger {
+    display:inline-flex; align-items:center; gap:4px; width:fit-content;
+    padding:4px 8px; margin-block:4px; border-radius:8px; cursor:help;
+    font-size:13px; color:rgb(var(--mdui-color-on-surface-variant));
+    transition:background-color var(--app-motion-short) var(--app-motion-ease);
+}
+.ui-help-trigger:hover { background-color:rgb(var(--mdui-color-surface-container-high)); }
+.ui-help-trigger:focus-visible { outline:2px solid rgb(var(--mdui-color-primary)); outline-offset:2px; }
+.ui-help-icon { font-size:18px; }
+/* 窄屏时提示框跟随视口收缩，避免固定 20rem 宽被裁切 */
+.ui-help::part(popup) { max-width:min(20rem, calc(100vw - 24px)); }
+.ui-help-content { max-height:40vh; overflow:auto; overflow-wrap:anywhere; }
+.ui-help-content p { margin:0 0 8px; line-height:1.6; }
+.ui-help-content p:last-child { margin-bottom:0; }
+mdui-tooltip:not(:defined) > [slot="content"] { display:none; }
+.qq-diagnostics > summary { cursor:pointer; padding-block:6px; width:fit-content; }
 .qq-diagnostics { margin-top:12px; font-size:14px; }
 .qq-summary { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:8px 16px; line-height:1.6; }
 .qq-summary dt, .qq-summary small { color:rgb(var(--mdui-color-on-surface-variant)); }

@@ -50,6 +50,7 @@
         const toolbar = U.el('div', {class: 'sandbox-toolbar'}, [botSelect, debugId, pluginSelect, type, clear]);
         const note = U.el('div', {id: 'sandbox-scope-note', class: 'plugin-muted'});
         const scopeHelp = U.help('范围说明', []);
+        const scopeHelpContent = scopeHelp.querySelector('.ui-help-content');
         container.replaceChildren(U.el('div', {class: 'plugin-page-surface'}, [U.text('h1', '沙盒测试', 'page-title'), toolbar, U.text('p', '仅模拟执行，不会发送 QQ 消息', 'plugin-muted'), note, scopeHelp, feedback,
             U.el('mdui-card', {variant: 'outlined', class: 'sandbox-workspace'}, [chat, U.el('div', {class: 'sandbox-compose'}, [input, send])])]));
         scope.on(botSelect, 'change', async () => {if (scope.busy) return; selected = botSelect.value; turns = []; renderTurns(); await loadPlugins();});
@@ -61,8 +62,7 @@
         function updateNote() {
             const plugin = plugins.find(p => p.id === pluginSelect.value);
             U.notice(note, !independent() && plugin?.enabled === false ? '此插件未启用，仍可测试' : '');
-            scopeHelp.querySelectorAll('p').forEach(node => node.remove());
-            scopeHelp.append(U.text('p', independent() ? '使用默认配置，不读取机器人配置。' : '使用此机器人已保存的插件配置，不包含表单中的未保存修改。'),
+            scopeHelpContent.replaceChildren(U.text('p', independent() ? '使用默认配置，不读取机器人配置。' : '使用此机器人已保存的插件配置，不包含表单中的未保存修改。'),
                 U.text('p', '每次测试使用独立临时状态，不启用插件，也不请求外部媒体'));
 
         }

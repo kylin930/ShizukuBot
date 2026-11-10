@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"shizukubot/migration"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -17,6 +17,8 @@ import (
 	"shizukubot/browser"
 	"shizukubot/config"
 	"shizukubot/core"
+	"shizukubot/migration"
+	"shizukubot/selfupdate"
 	stats "shizukubot/storage/stats"
 )
 
@@ -92,6 +94,14 @@ func main() {
 	}
 
 	router := api.NewRouter(botManager, cfg, cfgPath, logManager)
+	// 插件页“编译并重载”完成后通过该通道请求优雅重启。
+	restartCh := make(chan struct{}, 1)
+	router.OnReloadRequest = func() {
+		select {
+		case restartCh <- struct{}{}:
+		default:
+		}
+	}
 
 	if err := botManager.StartAll(); err != nil {
 		fmt.Printf("⚠️  Some bots failed to start: %v\n", err)
@@ -119,8 +129,14 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	sig := <-sigChan
-	fmt.Printf("\n📢 Received signal: %s, shutting down gracefully...\n", sig)
+	restarting := false
+	select {
+	case sig := <-sigChan:
+		fmt.Printf("\n📢 Received signal: %s, shutting down gracefully...\n", sig)
+	case <-restartCh:
+		restarting = true
+		fmt.Println("\n🔄 Plugin rebuild finished, restarting ShizukuBot...")
+	}
 
 	botManager.StopAll()
 	// 插件出图用的共享无头浏览器随宿主一起退出，避免遗留 Chrome 进程。
@@ -150,6 +166,21 @@ func main() {
 	}
 
 	fmt.Println("✅ ShizukuBot has been stopped")
+
+	if restarting {
+		executable, err := os.Executable()
+		if err == nil {
+			executable, err = filepath.Abs(executable)
+		}
+		if err == nil {
+			err = selfupdate.Restart(selfupdate.Staged(executable), executable, os.Getpid())
+		}
+		if err != nil {
+			fmt.Printf("❌ Automatic restart failed: %v\n", err)
+			return
+		}
+		fmt.Println("🚀 Restart scheduled; the freshly built binary will start shortly")
+	}
 }
 
 func migrateCLI(args []string) error {

@@ -94,6 +94,9 @@ type Router struct {
 	appearanceMu   sync.Mutex
 	botOps         sync.Map
 	pluginOps      sync.Map
+	rebuild        rebuildState
+	// OnReloadRequest 由 main 注入：编译完成后请求优雅重启主程序。
+	OnReloadRequest func()
 }
 
 func NewRouter(botManager *core.BotManager, cfg *config.Config, cfgPath string, logManager *core.LogManager) *Router {
@@ -244,6 +247,8 @@ func (r *Router) registerRoutes() {
 	api.HandleFunc("/user/me", r.GetCurrentUser).Methods(http.MethodGet)
 
 	api.HandleFunc("/plugins", r.GetPlugins).Methods(http.MethodGet)
+	api.HandleFunc("/plugins/rebuild", r.StartPluginRebuild).Methods(http.MethodPost)
+	api.HandleFunc("/plugins/rebuild/status", r.PluginRebuildStatus).Methods(http.MethodGet)
 	api.HandleFunc("/plugins/{id}", r.GetPlugin).Methods(http.MethodGet)
 	api.HandleFunc("/plugins", r.CreatePlugin).Methods(http.MethodPost)
 	api.HandleFunc("/plugins/{id}", r.UpdatePlugin).Methods(http.MethodPut)

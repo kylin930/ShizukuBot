@@ -3,6 +3,7 @@
     'use strict';
     const U = window.PluginUI;
     const stateNames = {running: '正常', unloaded: '未加载', error: '异常'};
+    const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     async function renderPlugins(container) {
         const scope = U.begin(container);
         let bots = [], plugins = [], botId = '', selectedId = U.context.pluginId, editor = null, revision = 0, loadError = '';
@@ -18,8 +19,9 @@
             {value: 'error', label: '异常'}, {value: 'blocked', label: '策略排除'}, {value: 'running', label: '实例已启动'},
         ], 'all', 'plugin-filter');
         const botSelect = U.select('管理机器人', [], '', 'plugin-bot-select');
+        const rebuild = U.button('编译并重载', () => startRebuild(), 'plugin-rebuild');
         sidebar.append(search, filter, list); body.append(sidebar, detail);
-        toolbar.append(botSelect, U.button('刷新', () => reload(true), 'plugin-refresh'));
+        toolbar.append(botSelect, U.button('刷新', () => reload(true), 'plugin-refresh'), rebuild);
         container.replaceChildren(U.el('div', {class: 'plugin-page-surface'}, [U.text('h1', '代码插件', 'page-title'),
             toolbar, feedback, body]));
         scope.dirty = () => Boolean(editor?.isDirty());
@@ -107,7 +109,8 @@
             restart.disabled = !botId || !plugin.allowed || !plugin.running;
             actions.append(toggle, restart, U.button('沙盒测试', () => U.openSandbox(botId, plugin.id), 'plugin-sandbox'));
             runtime.append(U.text('h3', '运行状态'), actions,
-                U.help('重启说明', ['仅重启此插件实例。源码更新需要重新构建和部署。']));
+                U.help('重启说明', ['“重启实例”只重建当前 Bot 的此插件实例，不读取修改后的源码。',
+                    '修改 Go 源码后使用顶部的“编译并重载”：在线生成注册表并重新编译，成功后自动重启 ShizukuBot。']));
             if (plugin.restart_required) runtime.append(U.text('p', '配置未应用，请重启实例', 'plugin-warning'));
             if (plugin.last_error) runtime.append(U.text('h4', '最近一次错误'), U.errorDetails(plugin.last_error));
             if (botId && !plugin.allowed) runtime.append(U.text('p', '此机器人已排除此插件。请在机器人配置中允许后再启用。', 'plugin-warning'));
@@ -167,6 +170,62 @@
                 U.notice(feedback, '数据已恢复，插件保持禁用', 'success');
             } catch (error) {if (scope.current()) U.notice(feedback, U.errorMessage(error), 'error');}
             finally {scope.busy = false; if (scope.current()) U.controlsBusy(container, false);}
+        }
+        async function startRebuild() {
+            if (scope.busy) return;
+            if (!await U.mayLeave()) return;
+            try {
+                await mdui.confirm({
+                    headline: '编译并重载插件',
+                    description: '将在线执行 go generate 与 go build，成功后自动重启 ShizukuBot。重启期间 WebUI 会短暂断开，完成后自动刷新页面。',
+                    confirmText: '开始编译', cancelText: '取消', closeOnEsc: true,
+                });
+            } catch { return; }
+            if (!scope.current()) return;
+            scope.busy = true;
+            U.notice(feedback, '正在编译源码并生成新的主程序，请稍候…');
+            U.controlsBusy(container, true);
+            try {
+                await scope.request('/api/plugins/rebuild', {method: 'POST', body: {restart: true}});
+                let status;
+                for (;;) {
+                    await sleep(1000);
+                    if (!scope.current()) return;
+                    status = await scope.request('/api/plugins/rebuild/status');
+                    if (!status.running) break;
+                }
+                if (!scope.current()) return;
+                if (!status.success) {
+                    U.notice(feedback, '编译失败，主程序未重启', 'error');
+                    feedback.append(U.errorDetails(status.error || '编译失败'));
+                    if (status.output) feedback.append(U.el('details', {class: 'plugin-error-details'},
+                        [U.text('summary', '查看编译输出'), U.text('pre', status.output)]));
+                    return;
+                }
+                if (!status.restart_queued) {
+                    U.notice(feedback, '编译成功；未排队重启，请手动重启主程序后生效', 'success');
+                    return;
+                }
+                U.notice(feedback, '编译成功，正在重启主程序…');
+                await waitForRestart();
+            } catch (error) { if (scope.current()) U.notice(feedback, U.errorMessage(error), 'error'); }
+            finally { scope.busy = false; if (scope.current()) U.controlsBusy(container, false); }
+        }
+        // 先等旧进程下线，再等新进程恢复，最后刷新页面加载新的插件目录。
+        async function waitForRestart() {
+            let down = false;
+            for (let i = 0; i < 40 && !down; i++) {
+                await sleep(500);
+                try { await fetch('/api/appearance', {cache: 'no-store'}); } catch { down = true; }
+            }
+            for (let i = 0; i < 120; i++) {
+                await sleep(1000);
+                try {
+                    const response = await fetch('/api/appearance', {cache: 'no-store'});
+                    if (response.ok) { window.location.reload(); return; }
+                } catch { /* 仍在重启，继续等待 */ }
+            }
+            if (scope.current()) U.notice(feedback, '编译成功，但等待服务恢复超时，请手动刷新页面', 'error');
         }
         await reload(false);
     }
